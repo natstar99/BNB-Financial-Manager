@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex
 from controllers.transaction_controller import TransactionController
 from views.category_picker_dialog import CategoryPickerDialog
 from views.auto_categorise_dialog import AutoCategoryRuleDialog
+from views.auto_categorisation_rules_view import AutoCategorisationRulesView
 from datetime import datetime
 
 class TransactionTableModel(QAbstractTableModel):  # Changed to QAbstractTableModel
@@ -124,8 +125,11 @@ class TransactionView(QWidget):
         """Initialise the user interface"""
         layout = QVBoxLayout(self)
         
+        # Create button container for all buttons
+        all_buttons_layout = QVBoxLayout()
+        
         # Create filter buttons
-        button_layout = QHBoxLayout()
+        filter_button_layout = QHBoxLayout()
         filter_buttons = {
             "All": "all",
             "Uncategorised": "uncategorised",
@@ -138,16 +142,31 @@ class TransactionView(QWidget):
             button = QPushButton(button_text)
             button.clicked.connect(
                 lambda checked, ft=filter_type: self._filter_transactions(ft))
-            button_layout.addWidget(button)
+            filter_button_layout.addWidget(button)
+        
+        all_buttons_layout.addLayout(filter_button_layout)
         
         # Create categorisation buttons
         cat_button_layout = QHBoxLayout()
+        
+        # Add stretch to push buttons to the left
+        cat_button_layout.addStretch()
+        
         auto_cat_button = QPushButton("Create Auto-Categorisation Rule")
         auto_cat_button.clicked.connect(self._create_auto_rule)
         cat_button_layout.addWidget(auto_cat_button)
         
-        layout.addLayout(button_layout)
-        layout.addLayout(cat_button_layout)
+        view_rules_button = QPushButton("View Auto-Categorisation Rules")
+        view_rules_button.clicked.connect(self._view_auto_rules)
+        cat_button_layout.addWidget(view_rules_button)
+        
+        # Add stretch to keep buttons centered
+        cat_button_layout.addStretch()
+        
+        all_buttons_layout.addLayout(cat_button_layout)
+        
+        # Add all buttons to main layout
+        layout.addLayout(all_buttons_layout)
         
         # Create table view
         self.table_view = QTableView()
@@ -190,3 +209,8 @@ class TransactionView(QWidget):
     def _filter_transactions(self, filter_type: str):
         """Handle transaction filtering including internal transfers"""
         self.table_model.refresh_data(filter_type)
+
+    def _view_auto_rules(self):
+        """Show the auto-categorisation rules management dialog"""
+        dialog = AutoCategorisationRulesView(self.controller, self)
+        dialog.exec_()

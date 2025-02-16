@@ -151,3 +151,15 @@ class TransactionController:
             self.model.detect_internal_transfers()
         
         return results
+    
+    def get_auto_categorisation_rules(self) -> List[Dict]:
+        """Get all auto-categorisation rules"""
+        return self.model.get_auto_categorisation_rules()
+
+    def update_auto_categorisation_rule(self, rule_id: int, rule_data: Dict) -> bool:
+        """Update an existing auto-categorisation rule"""
+        return self.model.update_auto_categorisation_rule(rule_id, rule_data)
+
+    def delete_auto_categorisation_rule(self, rule_id: int) -> bool:
+        """Delete an auto-categorisation rule"""
+        return self.model.delete_auto_categorisation_rule(rule_id)

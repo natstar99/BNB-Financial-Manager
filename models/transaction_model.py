@@ -238,6 +238,68 @@ class TransactionModel:
             print(f"Error checking for duplicate transaction: {e}")
             return False
 
+    def create_auto_categorisation_rule(self, rule_data: dict) -> bool:
+        """
+        Create a new auto-categorisation rule
+        
+        Args:
+            rule_data: Dictionary containing rule configuration:
+                {
+                    'category_id': str,
+                    'description': {
+                        'text': str,
+                        'case_sensitive': bool
+                    },
+                    'amount': {
+                        'operator': str,
+                        'value': Decimal,
+                        'value2': Optional[Decimal]
+                    },
+                    'account': {
+                        'text': str
+                    },
+                    'date_range': str,
+                    'apply_to': {
+                        'existing': bool,
+                        'future': bool
+                    }
+                }
+        
+        Returns:
+            bool: True if rule was created successfully, False otherwise
+        """
+        try:
+            self.db.execute("""
+                INSERT INTO auto_categorisation_rules (
+                    category_id, description_text, description_case_sensitive,
+                    amount_operator, amount_value, amount_value2,
+                    account_text, date_range, apply_future
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                rule_data['category_id'],
+                rule_data['description']['text'],
+                rule_data['description']['case_sensitive'],
+                rule_data['amount']['operator'],
+                float(rule_data['amount']['value']) if rule_data['amount']['value'] else None,
+                float(rule_data['amount']['value2']) if rule_data['amount']['value2'] else None,
+                rule_data['account']['text'],
+                rule_data['date_range'],
+                rule_data['apply_to']['future']
+            ))
+            
+            self.db.commit()
+            
+            # Apply to existing transactions if requested
+            if rule_data['apply_to']['existing']:
+                self.apply_auto_categorisation_rules()
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error creating auto-categorisation rule: {e}")
+            self.db.rollback()
+            return False
+
     def apply_auto_categorisation_rules(self):
         """Apply auto-categorisation rules to uncategorised transactions"""
         try:
@@ -257,6 +319,141 @@ class TransactionModel:
             self.db.commit()
         except Exception as e:
             print(f"Error applying auto-categorisation rules: {e}")
+
+    def get_auto_categorisation_rules(self) -> List[Dict]:
+        """
+        Get all auto-categorisation rules with their associated category names.
+        
+        Returns:
+            List[Dict]: List of dictionaries containing rule information:
+            {
+                'id': int,
+                'category_id': str,
+                'category_name': str,
+                'description_text': str,
+                'description_case_sensitive': bool,
+                'amount_operator': str,
+                'amount_value': float,
+                'amount_value2': float,
+                'account_text': str,
+                'date_range': str,
+                'apply_future': bool
+            }
+        """
+        try:
+            # Join with categories table to get category names
+            cursor = self.db.execute("""
+                SELECT 
+                    r.id,
+                    r.category_id,
+                    c.name as category_name,
+                    r.description_text,
+                    r.description_case_sensitive,
+                    r.amount_operator,
+                    r.amount_value,
+                    r.amount_value2,
+                    r.account_text,
+                    r.date_range,
+                    r.apply_future
+                FROM auto_categorisation_rules r
+                JOIN categories c ON r.category_id = c.id
+                ORDER BY c.name, r.description_text
+            """)
+            
+            rules = []
+            for row in cursor:
+                rules.append({
+                    'id': row[0],
+                    'category_id': row[1],
+                    'category_name': row[2],
+                    'description_text': row[3],
+                    'description_case_sensitive': bool(row[4]),
+                    'amount_operator': row[5],
+                    'amount_value': row[6],
+                    'amount_value2': row[7],
+                    'account_text': row[8],
+                    'date_range': row[9],
+                    'apply_future': bool(row[10])
+                })
+            
+            return rules
+            
+        except Exception as e:
+            print(f"Error getting auto-categorisation rules: {e}")
+            return []
+
+    def update_auto_categorisation_rule(self, rule_id: int, rule_data: Dict) -> bool:
+        """
+        Update an existing auto-categorisation rule
+        
+        Args:
+            rule_id: ID of the rule to update
+            rule_data: Dictionary containing updated rule configuration
+            
+        Returns:
+            bool: True if update was successful, False otherwise
+        """
+        try:
+            self.db.execute("""
+                UPDATE auto_categorisation_rules
+                SET category_id = ?,
+                    description_text = ?,
+                    description_case_sensitive = ?,
+                    amount_operator = ?,
+                    amount_value = ?,
+                    amount_value2 = ?,
+                    account_text = ?,
+                    date_range = ?,
+                    apply_future = ?
+                WHERE id = ?
+            """, (
+                rule_data['category_id'],
+                rule_data['description']['text'],
+                rule_data['description']['case_sensitive'],
+                rule_data['amount']['operator'],
+                float(rule_data['amount']['value']) if rule_data['amount']['value'] else None,
+                float(rule_data['amount']['value2']) if rule_data['amount']['value2'] else None,
+                rule_data['account']['text'],
+                rule_data['date_range'],
+                rule_data['apply_to']['future'],
+                rule_id
+            ))
+            
+            self.db.commit()
+            
+            # Apply to existing transactions if requested
+            if rule_data['apply_to']['existing']:
+                self.apply_auto_categorisation_rules()
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error updating auto-categorisation rule: {e}")
+            self.db.rollback()
+            return False
+
+    def delete_auto_categorisation_rule(self, rule_id: int) -> bool:
+        """
+        Delete an auto-categorisation rule
+        
+        Args:
+            rule_id: ID of the rule to delete
+            
+        Returns:
+            bool: True if deletion was successful, False otherwise
+        """
+        try:
+            self.db.execute(
+                "DELETE FROM auto_categorisation_rules WHERE id = ?",
+                (rule_id,)
+            )
+            self.db.commit()
+            return True
+            
+        except Exception as e:
+            print(f"Error deleting auto-categorisation rule: {e}")
+            self.db.rollback()
+            return False
 
     def _transaction_matches_rule(self, transaction, rule) -> bool:
         """Check if a transaction matches an auto-categorisation rule"""
