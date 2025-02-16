@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
                     self.statusBar().showMessage("Importing files...")
                     
                     # Import files
-                    results = self.transaction_controller.import_multiple_qif_files(
+                    results = self.transaction_controller.import_qif_files(
                         import_files)
                     
                     # Process results

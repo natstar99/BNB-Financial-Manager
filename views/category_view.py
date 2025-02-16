@@ -235,7 +235,10 @@ class CategoryView(QWidget):
     
     @Slot()
     def _add_category(self):
-        """Handle adding a new category"""
+        """
+        Handle adding a new category or bank account.
+        If creating a bank account, shows additional dialog for bank details.
+        """
         current = self.tree_view.currentIndex()
         if not current.isValid():
             QMessageBox.warning(
@@ -259,23 +262,49 @@ class CategoryView(QWidget):
         if dialog.exec_() == QDialog.Accepted:
             data = dialog.get_category_data()
             
-            # Regular category addition
-            success = self.controller.add_category(
-                name=data['name'],
-                parent_id=parent_item.id,
-                category_type=data['category_type'],
-                tax_type=data['tax_type'],
-                is_bank_account=data.get('is_bank_account', False)
-            )
-            
-            if success:
-                self.refresh_tree()
+            if data.get('is_bank_account'):
+                # Show bank account dialog to get additional details
+                bank_dialog = AddBankAccountDialog(self)
+                if bank_dialog.exec_() == QDialog.Accepted:
+                    bank_data = bank_dialog.get_account_data()
+                    
+                    # Add bank account with all necessary details
+                    # Remove name from bank_data since we pass it separately
+                    account_name = bank_data.pop('name')  # Remove and store name
+                    success = self.controller.add_bank_account(
+                        name=account_name,
+                        parent_id=parent_item.id,
+                        **bank_data  # Now bank_data won't include name
+                    )
+                    if success:
+                        self.refresh_tree()
+                        # Emit signal to update account view if needed
+                        if hasattr(self, 'account_added'):
+                            self.account_added.emit()
+                    else:
+                        QMessageBox.warning(
+                            self,
+                            "Error",
+                            "Failed to create bank account. Please check the details and try again."
+                        )
             else:
-                QMessageBox.warning(
-                    self,
-                    "Error",
-                    "Failed to add category. Please check the details and try again."
+                # Regular category addition
+                success = self.controller.add_category(
+                    name=data['name'],
+                    parent_id=parent_item.id,
+                    category_type=data['category_type'],
+                    tax_type=data['tax_type'],
+                    is_bank_account=False
                 )
+                
+                if success:
+                    self.refresh_tree()
+                else:
+                    QMessageBox.warning(
+                        self,
+                        "Error",
+                        "Failed to add category. Please check the details and try again."
+                    )
 
     def _add_account(self):
         """Handle adding a new bank account"""
@@ -529,28 +558,57 @@ class CategoryView(QWidget):
     def _restore_expanded_states(self, expanded_states: Set[str]):
         """Restore previously expanded categories"""
         def expand_items(index):
-            item = index.internalPointer()['item']
-            if item.id in expanded_states:
-                self.tree_view.setExpanded(index, True)
-            
-            for row in range(self.tree_model.rowCount(index)):
-                child_index = self.tree_model.index(row, 0, index)
-                expand_items(child_index)
+            if not index.isValid():
+                # Handle root level
+                for row in range(self.tree_model.rowCount()):
+                    child_index = self.tree_model.index(row, 0, QModelIndex())
+                    expand_items(child_index)
+                return
+
+            item_data = index.internalPointer()
+            if item_data is None:
+                return
+                
+            try:
+                item = item_data['item']
+                if item.id in expanded_states:
+                    self.tree_view.setExpanded(index, True)
+                
+                for row in range(self.tree_model.rowCount(index)):
+                    child_index = self.tree_model.index(row, 0, index)
+                    expand_items(child_index)
+            except (TypeError, KeyError):
+                # Handle any potential errors with item data
+                pass
         
         expand_items(QModelIndex())
 
     def _select_item_by_id(self, item_id: str):
         """Select an item in the tree by its ID"""
         def find_and_select(index):
-            item = index.internalPointer()['item']
-            if item.id == item_id:
-                self.tree_view.setCurrentIndex(index)
-                return True
-            
-            for row in range(self.tree_model.rowCount(index)):
-                child_index = self.tree_model.index(row, 0, index)
-                if find_and_select(child_index):
+            if not index.isValid():
+                for row in range(self.tree_model.rowCount()):
+                    child_index = self.tree_model.index(row, 0, QModelIndex())
+                    if find_and_select(child_index):
+                        return True
+                return False
+
+            item_data = index.internalPointer()
+            if item_data is None:
+                return False
+                
+            try:
+                item = item_data['item']
+                if item.id == item_id:
+                    self.tree_view.setCurrentIndex(index)
                     return True
-            return False
+                
+                for row in range(self.tree_model.rowCount(index)):
+                    child_index = self.tree_model.index(row, 0, index)
+                    if find_and_select(child_index):
+                        return True
+                return False
+            except (TypeError, KeyError):
+                return False
         
         find_and_select(QModelIndex())

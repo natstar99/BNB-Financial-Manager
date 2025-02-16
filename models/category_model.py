@@ -53,13 +53,6 @@ class CategoryModel:
                 (id, name, parent_id, category_type, tax_type)
                 VALUES (?, ?, NULL, ?, NULL)
             """, (cat_id, name, CategoryType.ROOT.value))
-
-        # Then ensure the Accounts group exists under Assets
-        self.db.execute("""
-            INSERT OR IGNORE INTO categories
-            (id, name, parent_id, category_type, tax_type)
-            VALUES ('1.1', 'Accounts', '1', ?, NULL)
-        """, (CategoryType.GROUP.value,))
         
         self.db.commit()
     
@@ -100,36 +93,105 @@ class CategoryModel:
             ) for row in cursor
         ]
 
-    def add_category(self, name: str, parent_id: str, category_type: CategoryType, tax_type: Optional[str] = None) -> bool:
-        """Add a new category under the specified parent"""
+    def add_category(self, name: str, parent_id: str, category_type: CategoryType, 
+                    tax_type: Optional[str] = None, is_bank_account: bool = False) -> bool:
+        """
+        Add a new category under the specified parent
+        
+        Args:
+            name: The name of the new category
+            parent_id: The ID of the parent category
+            category_type: The type of category (ROOT, GROUP, or TRANSACTION)
+            tax_type: Optional tax type for transaction categories
+            is_bank_account: Flag indicating if this is a bank account category
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        print(f"Starting add_category for name: {name}, parent_id: {parent_id}")
+        new_id = None
         try:
-            # Get all children of parent to determine new ID
+            # First, let's see what categories exist
+            cursor = self.db.execute("SELECT id FROM categories")
+            all_categories = [row[0] for row in cursor]
+            print(f"All existing category IDs: {all_categories}")  # Debug print
+            
+            # Get all children of parent
             cursor = self.db.execute(
-                "SELECT id FROM categories WHERE parent_id = ? ORDER BY id DESC",
+                "SELECT id FROM categories WHERE parent_id = ?",
                 (parent_id,)
             )
             existing_ids = [row[0] for row in cursor]
+            print(f"Existing child IDs for parent {parent_id}: {existing_ids}")  # Debug print
             
-            # Determine new ID
-            if not existing_ids:
-                # First child - append .1 to parent ID
-                new_id = f"{parent_id}.1"
-            else:
-                # Get last ID and increment
-                last_id = existing_ids[0]
-                last_number = int(last_id.split('.')[-1])
-                new_id = f"{parent_id}.{last_number + 1}"
+            # Find the maximum number used at this level
+            max_number = 0
+            for existing_id in existing_ids:
+                try:
+                    number = int(existing_id.split('.')[-1])
+                    max_number = max(max_number, number)
+                    print(f"Found number {number} from ID {existing_id}")  # Debug print
+                except (ValueError, IndexError) as e:
+                    print(f"Error processing ID {existing_id}: {e}")  # Debug print
+                    continue
+            
+            # Generate new ID
+            next_number = max_number + 1
+            new_id = f"{parent_id}.{next_number}"
+            print(f"Generated new ID: {new_id}")  # Debug print
+            
+            # Verify the ID doesn't exist anywhere in the database
+            cursor = self.db.execute(
+                "SELECT COUNT(*) FROM categories WHERE id = ?",
+                (new_id,)
+            )
+            count = cursor.fetchone()[0]
+            print(f"Found {count} existing categories with ID {new_id}")  # Debug print
+            
+            if count > 0:
+                # Find the next available number
+                while True:
+                    next_number += 1
+                    test_id = f"{parent_id}.{next_number}"
+                    cursor = self.db.execute(
+                        "SELECT COUNT(*) FROM categories WHERE id = ?",
+                        (test_id,)
+                    )
+                    if cursor.fetchone()[0] == 0:
+                        new_id = test_id
+                        print(f"Found available ID: {new_id}")  # Debug print
+                        break
+            
+            print(f"Final new ID to be inserted: {new_id}")  # Debug print
             
             # Insert new category
             self.db.execute("""
-                INSERT INTO categories (id, name, parent_id, category_type, tax_type)
-                VALUES (?, ?, ?, ?, ?)
-            """, (new_id, name, parent_id, category_type.value, tax_type))
+                INSERT INTO categories (id, name, parent_id, category_type, tax_type, is_bank_account)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (new_id, name, parent_id, category_type.value, tax_type, is_bank_account))
             
             self.db.commit()
+            print("Category successfully added")
             return True
+            
         except Exception as e:
             print(f"Error adding category: {e}")
+            print(f"Attempted ID: {new_id}")
+            self.db.rollback()
+            
+        except Exception as e:
+            print(f"Error adding category: {e}")
+            print(f"Attempted ID: {new_id}")
+            self.db.rollback()  # Make sure we rollback on error
+            
+            # Let's see what's in the database
+            try:
+                cursor = self.db.execute("SELECT id FROM categories WHERE id = ?", (new_id,))
+                existing = cursor.fetchone()
+                print(f"Checking if ID exists: {existing}")
+            except Exception as check_e:
+                print(f"Error checking existing ID: {check_e}")
+            
             return False
 
     def move_category(self, category_id: str, new_parent_id: str) -> bool:

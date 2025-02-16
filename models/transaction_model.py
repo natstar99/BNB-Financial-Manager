@@ -10,10 +10,10 @@ from models.category_model import CategoryType
 
 class TaxType(Enum):
     """Enumeration of possible tax types"""
-    GST = "GST"
-    FRE = "FRE"
-    NT = "NT"
-    NONE = "NONE"
+    GST = "GST"    # Goods and Services Tax
+    FRE = "FRE"    # GST Free
+    NT = "NT"      # Not Taxable
+    NONE = "NONE"  # No tax type specified
 
 @dataclass
 class Transaction:
@@ -29,6 +29,7 @@ class Transaction:
     is_tax_deductible: bool
     is_hidden: bool
     is_matched: bool
+    is_internal_transfer: bool = False
 
 class TransactionModel:
     """Model for managing financial transactions"""
@@ -66,20 +67,38 @@ class TransactionModel:
         return [self._row_to_transaction(row) for row in cursor]
     
     def _row_to_transaction(self, row):
-        """Convert a database row to a Transaction object"""
-        return Transaction(
-            id=row[0],
-            date=datetime.fromisoformat(row[1]),
-            account=row[2],
-            description=row[3],
-            withdrawal=Decimal(str(row[4])) if row[4] else Decimal('0'),
-            deposit=Decimal(str(row[5])) if row[5] else Decimal('0'),
-            category_id=row[6],
-            tax_type=TaxType(row[7]),
-            is_tax_deductible=bool(row[8]),
-            is_hidden=bool(row[9]),
-            is_matched=bool(row[10])
-        )
+        """
+        Convert a database row to a Transaction object
+        
+        Args:
+            row: Database row containing transaction data
+            
+        Returns:
+            Transaction: A transaction object with all fields populated
+        """
+        try:
+            tax_type_value = row[7]  # Get the tax_type value from the row
+            # If tax_type is None/NULL, default to TaxType.NONE
+            tax_type = TaxType(tax_type_value) if tax_type_value else TaxType.NONE
+            
+            return Transaction(
+                id=row[0],
+                date=datetime.fromisoformat(row[1]),
+                account=row[2],
+                description=row[3],
+                withdrawal=Decimal(str(row[4])) if row[4] else Decimal('0'),
+                deposit=Decimal(str(row[5])) if row[5] else Decimal('0'),
+                category_id=row[6],
+                tax_type=tax_type,
+                is_tax_deductible=bool(row[8]),
+                is_hidden=bool(row[9]),
+                is_matched=bool(row[10]),
+                is_internal_transfer=bool(row[11])  # Get is_internal_transfer from row
+            )
+        except Exception as e:
+            print(f"Error converting row to transaction: {e}")
+            print(f"Row data: {row}")
+            raise
     
     def is_duplicate_transaction(self, trans: QIFTransaction, window_days: int = 3) -> bool:
         """
@@ -413,3 +432,59 @@ class TransactionModel:
             self.db.execute("ROLLBACK")
             print(f"Error detecting internal transfers: {e}")
             return False
+
+    def find_database_duplicates(self, transactions: List[QIFTransaction], window_days: int = 3) -> List[Dict]:
+        """
+        Find potential duplicate transactions in the database.
+        
+        Args:
+            transactions: List of transactions to check
+            window_days: Number of days to look around each transaction date for matches
+            
+        Returns:
+            List of dictionaries containing duplicate information:
+            {
+                'transaction': QIFTransaction,
+                'count': int (number of matches found),
+                'group_id': str (identifier for grouping related duplicates)
+            }
+        """
+        duplicates = []
+        
+        try:
+            for trans in transactions:
+                # Calculate date range for checking
+                start_date = (trans.date - timedelta(days=window_days)).isoformat()
+                end_date = (trans.date + timedelta(days=window_days)).isoformat()
+                
+                # Determine withdrawal/deposit amounts
+                withdrawal = float(abs(trans.amount)) if trans.amount < 0 else 0.0
+                deposit = float(trans.amount) if trans.amount > 0 else 0.0
+                
+                # Build description as it would appear in the database
+                description = trans.payee + (f" - {trans.memo}" if trans.memo else '')
+                
+                # Query for matching transactions
+                cursor = self.db.execute("""
+                    SELECT COUNT(*) 
+                    FROM transactions
+                    WHERE date BETWEEN ? AND ?
+                    AND ABS(withdrawal - ?) < 0.01  -- Use small epsilon for float comparison
+                    AND ABS(deposit - ?) < 0.01
+                    AND description = ?
+                """, (start_date, end_date, withdrawal, deposit, description))
+                
+                match_count = cursor.fetchone()[0]
+                
+                if match_count > 0:
+                    duplicates.append({
+                        'transaction': trans,
+                        'count': match_count,
+                        # Generate a simple group ID based on date and amount
+                        'group_id': f"{trans.date.strftime('%Y%m%d')}_{abs(trans.amount)}"
+                    })
+        
+        except Exception as e:
+            print(f"Error checking for database duplicates: {e}")
+        
+        return duplicates

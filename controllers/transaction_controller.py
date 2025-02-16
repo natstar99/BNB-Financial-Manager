@@ -53,57 +53,9 @@ class TransactionController:
             print(f"Error matching transactions: {e}")
             return False
         
-    def import_qif_file(self, file_path: str, account_id: str) -> tuple[bool, int, int]:
+    def import_qif_files(self, import_files: List[Dict]) -> Dict[str, Dict[str, int]]:
         """
-        Import transactions from QIF file into a specific account
-        
-        Args:
-            file_path: Path to the QIF file
-            account_id: Bank account ID to import into
-            
-        Returns:
-            tuple: (success, number of transactions imported, number of duplicates skipped)
-        """
-        try:
-            # Parse file
-            parser = QIFParser()
-            transactions = parser.parse_file(file_path)
-            
-            # Set account ID for all transactions
-            for trans in transactions:
-                trans.account = account_id
-            
-            # Import transactions
-            imported_count, duplicate_count = self.model.import_qif_transactions(
-                transactions)
-            
-            # Update account balance if import successful
-            if imported_count > 0 and self.bank_account_model:
-                # Calculate new balance from successful imports only
-                total_amount = sum(
-                    t.amount for t in transactions 
-                    if not self.model.is_duplicate_in_account(t, account_id)
-                )
-                
-                # Update account balance
-                self.bank_account_model.update_balance(
-                    account_id,
-                    total_amount,
-                    datetime.now().isoformat()
-                )
-            
-            # Detect internal transfers
-            self.model.detect_internal_transfers()
-            
-            return True, imported_count, duplicate_count
-            
-        except Exception as e:
-            print(f"Error importing QIF file: {e}")
-            return False, 0, 0
-        
-    def import_multiple_qif_files(self, import_files: List[Dict]) -> Dict[str, Dict[str, int]]:
-        """
-        Import multiple QIF files with account associations
+        Import one or more QIF files with account associations
         
         Args:
             import_files: List of dictionaries containing file_path and account_id
@@ -114,12 +66,17 @@ class TransactionController:
                 'file_name': {
                     'success': bool,
                     'imported_count': int,
-                    'duplicate_count': int
+                    'duplicate_count': int,
+                    'error': Optional[str]
                 }
             }
         """
         results = {}
+        all_transactions = []  # Store all transactions for internal transfer detection
         
+        from datetime import datetime, timedelta  # Import at top of method
+        
+        # First pass: Parse all files and collect transactions
         for import_file in import_files:
             file_path = import_file['file_path']
             account_id = import_file['account_id']
@@ -133,41 +90,45 @@ class TransactionController:
                 for trans in transactions:
                     trans.account = account_id
                 
-                # Check for duplicates
-                file_duplicates = self.model.find_duplicates_in_qif(transactions)
-                db_duplicates = self.model.find_database_duplicates(transactions)
+                all_transactions.extend(transactions)
                 
-                selected_transactions = None
-                if file_duplicates or db_duplicates:
-                    # Show duplicate manager dialog
-                    dialog = DuplicateManagerDialog(file_duplicates, db_duplicates)
-                    if dialog.exec_() == QDialog.Accepted:
-                        selected_transactions = dialog.get_selected_transactions()
-                    else:
-                        continue  # Skip this file if user cancels
+                # Split transactions into new and potential duplicates
+                duplicates = self.model.find_database_duplicates(transactions)
+                duplicate_trans_ids = {(d['transaction'].date, d['transaction'].amount, 
+                                    d['transaction'].payee, d['transaction'].memo) 
+                                    for d in duplicates}
+                new_transactions = [t for t in transactions 
+                                if (t.date, t.amount, t.payee, t.memo) not in duplicate_trans_ids]
+
+                # Show transaction manager dialog
+                dialog = DuplicateManagerDialog(new_transactions, duplicates)
+                if dialog.exec_() == QDialog.Accepted:
+                    selected = dialog.get_selected_transactions()
+                    transactions_to_import = [t for t in transactions if (
+                        t.date, t.amount, t.payee, t.memo) in selected]
+                else:
+                    continue  # Skip this file if user cancels
                 
                 # Import transactions
                 imported_count, duplicate_count = self.model.import_qif_transactions(
-                    transactions, selected_transactions)
+                    transactions, account_id)
                 
-                # Update account balance if import successful
+                # Update account balance
                 if self.bank_account_model:
                     # Calculate new balance from successful imports only
-                    total_amount = sum(
-                        t.amount for t in transactions 
-                        if not self.model.is_duplicate_transaction(t))
+                    total_amount = sum(t.amount for t in transactions 
+                                    if not self.model.is_duplicate_transaction(t))
                     
                     # Get current account balance
-                    accounts = self.bank_account_model.get_accounts()
-                    account = next(a for a in accounts if a.id == account_id)
+                    account = next(a for a in self.bank_account_model.get_accounts() 
+                                if a.id == account_id)
                     new_balance = account.current_balance + Decimal(str(total_amount))
                     
                     # Update account balance and import date
-                    from datetime import datetime
                     self.bank_account_model.update_balance(
                         account_id,
                         new_balance,
-                        datetime.now().isoformat()
+                        datetime.now().isoformat()  # Using datetime.now() correctly now
                     )
                 
                 results[os.path.basename(file_path)] = {
@@ -184,5 +145,9 @@ class TransactionController:
                     'duplicate_count': 0,
                     'error': str(e)
                 }
+        
+        # After all files are imported, detect internal transfers
+        if len(import_files) > 1:
+            self.model.detect_internal_transfers()
         
         return results

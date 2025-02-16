@@ -8,7 +8,7 @@ from models.category_model import CategoryType
 @dataclass
 class BankAccount:
     """Data class representing a bank account"""
-    id: str  # Uses the same hierarchical ID system as categories (e.g., "1.1" for first bank account under Assets)
+    id: str  # Uses the same hierarchical ID system as categories
     name: str
     account_number: str
     bsb: str  # BSB number (Australian bank identifier)

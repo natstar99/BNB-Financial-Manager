@@ -14,35 +14,31 @@ class CategoryController:
 
     def add_category(self, name: str, parent_id: str, category_type: CategoryType, 
                     tax_type: Optional[str] = None, is_bank_account: bool = False) -> bool:
-        """Add a new category under the specified parent"""
+        """
+        Add a new category under the specified parent.
+        Delegates to the CategoryModel for actual implementation.
+        
+        Args:
+            name: The name of the new category
+            parent_id: The ID of the parent category
+            category_type: The type of category (ROOT, GROUP, or TRANSACTION)
+            tax_type: Optional tax type for transaction categories
+            is_bank_account: Flag indicating if this is a bank account category
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
-            # Get all children of parent to determine new ID
-            cursor = self.model.db.execute(
-                "SELECT id FROM categories WHERE parent_id = ? ORDER BY id DESC",
-                (parent_id,)
+            # Delegate to the model's implementation
+            return self.model.add_category(
+                name=name,
+                parent_id=parent_id,
+                category_type=category_type,
+                tax_type=tax_type,
+                is_bank_account=is_bank_account
             )
-            existing_ids = [row[0] for row in cursor]
-            
-            # Determine new ID
-            if not existing_ids:
-                # First child - append .1 to parent ID
-                new_id = f"{parent_id}.1"
-            else:
-                # Get last ID and increment
-                last_id = existing_ids[0]
-                last_number = int(last_id.split('.')[-1])
-                new_id = f"{parent_id}.{last_number + 1}"
-            
-            # Insert new category
-            self.model.db.execute("""
-                INSERT INTO categories (id, name, parent_id, category_type, tax_type, is_bank_account)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (new_id, name, parent_id, category_type.value, tax_type, is_bank_account))
-            
-            self.model.db.commit()
-            return True
         except Exception as e:
-            print(f"Error adding category: {e}")
+            print(f"Error in controller adding category: {e}")
             return False
         
     def add_bank_account(self, name: str, parent_id: str, **bank_data) -> bool:
