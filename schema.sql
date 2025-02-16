@@ -35,15 +35,24 @@ ON transactions(date);
 CREATE TABLE IF NOT EXISTS auto_categorisation_rules (
     id INTEGER PRIMARY KEY,
     category_id TEXT NOT NULL,
-    description_text TEXT,
-    description_case_sensitive BOOLEAN,
     amount_operator TEXT,
     amount_value REAL,
     amount_value2 REAL,
-    account_text TEXT,
+    account_id TEXT,
     date_range TEXT,
     apply_future BOOLEAN,
-    FOREIGN KEY (category_id) REFERENCES categories (id)
+    FOREIGN KEY (category_id) REFERENCES categories (id),
+    FOREIGN KEY (account_id) REFERENCES bank_accounts (id)
+);
+
+CREATE TABLE IF NOT EXISTS auto_categorisation_rule_descriptions (
+    id INTEGER PRIMARY KEY,
+    rule_id INTEGER NOT NULL,
+    operator TEXT,        -- NULL for first condition, 'AND' or 'OR' for subsequent
+    description_text TEXT NOT NULL,
+    case_sensitive BOOLEAN NOT NULL DEFAULT 0,
+    sequence INTEGER NOT NULL,  -- Order of conditions
+    FOREIGN KEY (rule_id) REFERENCES auto_categorisation_rules (id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS bank_accounts (

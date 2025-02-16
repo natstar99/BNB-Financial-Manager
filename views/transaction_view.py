@@ -8,6 +8,7 @@ from views.category_picker_dialog import CategoryPickerDialog
 from views.auto_categorise_dialog import AutoCategoryRuleDialog
 from views.auto_categorisation_rules_view import AutoCategorisationRulesView
 from datetime import datetime
+from models.bank_account_model import BankAccountModel
 
 class TransactionTableModel(QAbstractTableModel):  # Changed to QAbstractTableModel
     """Model for displaying transactions in a table view"""
@@ -115,10 +116,11 @@ class TransactionTableModel(QAbstractTableModel):  # Changed to QAbstractTableMo
         return False
     
 class TransactionView(QWidget):
-    def __init__(self, controller: TransactionController, category_controller):
+    def __init__(self, controller: TransactionController, category_controller, bank_account_model: BankAccountModel):
         super().__init__()
         self.controller = controller
         self.category_controller = category_controller
+        self.bank_account_model = bank_account_model
         self._setup_ui()
     
     def _setup_ui(self):
@@ -197,7 +199,11 @@ class TransactionView(QWidget):
         dialog = CategoryPickerDialog(self.category_controller, self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_category:
             # Then show the rule creation dialog
-            rule_dialog = AutoCategoryRuleDialog(dialog.selected_category, self)
+            rule_dialog = AutoCategoryRuleDialog(
+                dialog.selected_category,
+                self.bank_account_model,
+                self
+            )
             if rule_dialog.exec_() == QDialog.Accepted:
                 rule_data = rule_dialog.get_rule_data()
                 success = self.controller.create_auto_categorisation_rule(rule_data)

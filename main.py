@@ -23,9 +23,13 @@ def main():
     
     # Initialise controllers
     category_controller = CategoryController(category_model)
-    transaction_controller = TransactionController(transaction_model, bank_account_model)
+    transaction_controller = TransactionController(
+        transaction_model, 
+        bank_account_model,
+        category_controller
+    )
     
-    # Initialise main window and pass controllers and models to main window
+    # Initialise main window
     main_window = MainWindow(
         category_controller, 
         transaction_controller,

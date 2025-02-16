@@ -32,3 +32,7 @@ class DatabaseManager:
     def commit(self):
         """Commit pending transactions"""
         self.conn.commit()
+
+    def rollback(self):
+        """Rollback (undo) pending transactions in case of error"""
+        self.conn.rollback()

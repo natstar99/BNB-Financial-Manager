@@ -239,55 +239,43 @@ class TransactionModel:
             return False
 
     def create_auto_categorisation_rule(self, rule_data: dict) -> bool:
-        """
-        Create a new auto-categorisation rule
-        
-        Args:
-            rule_data: Dictionary containing rule configuration:
-                {
-                    'category_id': str,
-                    'description': {
-                        'text': str,
-                        'case_sensitive': bool
-                    },
-                    'amount': {
-                        'operator': str,
-                        'value': Decimal,
-                        'value2': Optional[Decimal]
-                    },
-                    'account': {
-                        'text': str
-                    },
-                    'date_range': str,
-                    'apply_to': {
-                        'existing': bool,
-                        'future': bool
-                    }
-                }
-        
-        Returns:
-            bool: True if rule was created successfully, False otherwise
-        """
+        """Create a new auto-categorisation rule"""
         try:
-            self.db.execute("""
+            self.db.execute("BEGIN TRANSACTION")
+            
+            # Insert main rule
+            cursor = self.db.execute("""
                 INSERT INTO auto_categorisation_rules (
-                    category_id, description_text, description_case_sensitive,
-                    amount_operator, amount_value, amount_value2,
-                    account_text, date_range, apply_future
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    category_id, amount_operator, amount_value, amount_value2,
+                    account_id, date_range, apply_future
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
                 rule_data['category_id'],
-                rule_data['description']['text'],
-                rule_data['description']['case_sensitive'],
                 rule_data['amount']['operator'],
                 float(rule_data['amount']['value']) if rule_data['amount']['value'] else None,
                 float(rule_data['amount']['value2']) if rule_data['amount']['value2'] else None,
-                rule_data['account']['text'],
+                rule_data['account']['id'],
                 rule_data['date_range'],
                 rule_data['apply_to']['future']
             ))
             
-            self.db.commit()
+            rule_id = cursor.lastrowid
+            
+            # Insert description conditions
+            for i, condition in enumerate(rule_data['description']['conditions']):
+                self.db.execute("""
+                    INSERT INTO auto_categorisation_rule_descriptions (
+                        rule_id, operator, description_text, case_sensitive, sequence
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (
+                    rule_id,
+                    condition['operator'],
+                    condition['text'],
+                    condition['case_sensitive'],
+                    i
+                ))
+            
+            self.db.execute("COMMIT")
             
             # Apply to existing transactions if requested
             if rule_data['apply_to']['existing']:
@@ -296,84 +284,70 @@ class TransactionModel:
             return True
             
         except Exception as e:
+            self.db.execute("ROLLBACK")
             print(f"Error creating auto-categorisation rule: {e}")
-            self.db.rollback()
             return False
-
-    def apply_auto_categorisation_rules(self):
-        """Apply auto-categorisation rules to uncategorised transactions"""
-        try:
-            # Get all rules
-            cursor = self.db.execute("SELECT * FROM auto_categorisation_rules")
-            rules = cursor.fetchall()
-
-            # Get uncategorised transactions
-            transactions = self.get_transactions("uncategorised")
-
-            for trans in transactions:
-                for rule in rules:
-                    if self._transaction_matches_rule(trans, rule):
-                        self.update_transaction_category(trans.id, rule[1])  # rule[1] is category_id
-                        break  # Stop after first matching rule
-
-            self.db.commit()
-        except Exception as e:
-            print(f"Error applying auto-categorisation rules: {e}")
 
     def get_auto_categorisation_rules(self) -> List[Dict]:
         """
-        Get all auto-categorisation rules with their associated category names.
+        Get all auto-categorisation rules with their conditions
         
         Returns:
-            List[Dict]: List of dictionaries containing rule information:
-            {
-                'id': int,
-                'category_id': str,
-                'category_name': str,
-                'description_text': str,
-                'description_case_sensitive': bool,
-                'amount_operator': str,
-                'amount_value': float,
-                'amount_value2': float,
-                'account_text': str,
-                'date_range': str,
-                'apply_future': bool
-            }
+            List[Dict]: List of rule dictionaries with all their details
         """
         try:
-            # Join with categories table to get category names
+            # Get main rules
             cursor = self.db.execute("""
                 SELECT 
                     r.id,
                     r.category_id,
                     c.name as category_name,
-                    r.description_text,
-                    r.description_case_sensitive,
                     r.amount_operator,
                     r.amount_value,
                     r.amount_value2,
-                    r.account_text,
+                    r.account_id,
+                    COALESCE(ba.name, 'Any') as account_name,
                     r.date_range,
                     r.apply_future
                 FROM auto_categorisation_rules r
                 JOIN categories c ON r.category_id = c.id
-                ORDER BY c.name, r.description_text
+                LEFT JOIN bank_accounts ba ON r.account_id = ba.id
+                ORDER BY c.name
             """)
             
             rules = []
             for row in cursor:
+                rule_id = row[0]
+                
+                # Get description conditions for this rule
+                desc_cursor = self.db.execute("""
+                    SELECT operator, description_text, case_sensitive
+                    FROM auto_categorisation_rule_descriptions
+                    WHERE rule_id = ?
+                    ORDER BY sequence
+                """, (rule_id,))
+                
+                # Convert description conditions to list of dictionaries
+                description_conditions = []
+                for desc_row in desc_cursor:
+                    description_conditions.append({
+                        'operator': desc_row[0],
+                        'text': desc_row[1],
+                        'case_sensitive': bool(desc_row[2])
+                    })
+                
                 rules.append({
-                    'id': row[0],
+                    'id': rule_id,
                     'category_id': row[1],
                     'category_name': row[2],
-                    'description_text': row[3],
-                    'description_case_sensitive': bool(row[4]),
-                    'amount_operator': row[5],
-                    'amount_value': row[6],
-                    'amount_value2': row[7],
-                    'account_text': row[8],
-                    'date_range': row[9],
-                    'apply_future': bool(row[10])
+                    'description_conditions': description_conditions,
+                    'amount_operator': row[3],
+                    'amount_value': row[4],
+                    'amount_value2': row[5],
+                    'account_id': row[6],
+                    'account_name': row[7],
+                    'date_range': row[8],
+                    'apply_future': bool(row[9])
                 })
             
             return rules
@@ -388,36 +362,80 @@ class TransactionModel:
         
         Args:
             rule_id: ID of the rule to update
-            rule_data: Dictionary containing updated rule configuration
-            
+            rule_data: Dictionary containing updated rule configuration:
+            {
+                'category_id': str,
+                'description': {
+                    'conditions': [
+                        {
+                            'operator': str or None,  # None for first condition
+                            'text': str,
+                            'case_sensitive': bool
+                        }
+                    ]
+                },
+                'amount': {
+                    'operator': str,
+                    'value': Decimal,
+                    'value2': Optional[Decimal]
+                },
+                'account': {
+                    'id': str or None
+                },
+                'date_range': str,
+                'apply_to': {
+                    'existing': bool,
+                    'future': bool
+                }
+            }
+        
         Returns:
             bool: True if update was successful, False otherwise
         """
         try:
+            self.db.execute("BEGIN TRANSACTION")
+            
+            # Update main rule
             self.db.execute("""
                 UPDATE auto_categorisation_rules
                 SET category_id = ?,
-                    description_text = ?,
-                    description_case_sensitive = ?,
                     amount_operator = ?,
                     amount_value = ?,
                     amount_value2 = ?,
-                    account_text = ?,
+                    account_id = ?,
                     date_range = ?,
                     apply_future = ?
                 WHERE id = ?
             """, (
                 rule_data['category_id'],
-                rule_data['description']['text'],
-                rule_data['description']['case_sensitive'],
                 rule_data['amount']['operator'],
                 float(rule_data['amount']['value']) if rule_data['amount']['value'] else None,
                 float(rule_data['amount']['value2']) if rule_data['amount']['value2'] else None,
-                rule_data['account']['text'],
+                rule_data['account']['id'],
                 rule_data['date_range'],
                 rule_data['apply_to']['future'],
                 rule_id
             ))
+            
+            # Delete existing description conditions
+            self.db.execute("""
+                DELETE FROM auto_categorisation_rule_descriptions
+                WHERE rule_id = ?
+            """, (rule_id,))
+            
+            # Insert new description conditions
+            for i, condition in enumerate(rule_data['description']['conditions']):
+                self.db.execute("""
+                    INSERT INTO auto_categorisation_rule_descriptions (
+                        rule_id, operator, description_text, case_sensitive, sequence
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (
+                    rule_id,
+                    condition['operator'],
+                    condition['text'],
+                    condition['case_sensitive'],
+                    i
+                ))
             
             self.db.commit()
             
@@ -455,55 +473,191 @@ class TransactionModel:
             self.db.rollback()
             return False
 
-    def _transaction_matches_rule(self, transaction, rule) -> bool:
-        """Check if a transaction matches an auto-categorisation rule"""
-        # Unpack rule data
-        (rule_id, category_id, desc_text, desc_case, amount_op, 
-         amount_val, amount_val2, account_text, date_range, apply_future) = rule
+    def _transaction_matches_rule(self, transaction: Transaction, rule: tuple) -> bool:
+        """
+        Check if a transaction matches an auto-categorisation rule
+        
+        Args:
+            transaction: Transaction object to check
+            rule: Tuple from database containing rule criteria
+            
+        Returns:
+            bool: True if transaction matches rule criteria
+        """
+        try:
+            # Extract rule components from tuple
+            (rule_id, category_id, account_id, amount_operator, 
+            amount_value, amount_value2, date_range) = rule
 
-        # Description matching
-        if desc_text:
-            trans_desc = transaction.description
-            rule_desc = desc_text
-            if not desc_case:
-                trans_desc = trans_desc.lower()
-                rule_desc = rule_desc.lower()
-            if rule_desc not in trans_desc:
+            # Get description conditions for this rule
+            cursor = self.db.execute("""
+                SELECT operator, description_text, case_sensitive
+                FROM auto_categorisation_rule_descriptions
+                WHERE rule_id = ?
+                ORDER BY sequence
+            """, (rule_id,))
+            description_conditions = cursor.fetchall()
+
+            # Check account if specified
+            if account_id and transaction.account != account_id:
                 return False
 
-        # Account matching
-        if account_text and account_text.lower() not in transaction.account.lower():
+            # Check description conditions
+            if not self._check_description_conditions(transaction.description, description_conditions):
+                return False
+
+            # Check amount
+            amount = transaction.withdrawal or transaction.deposit
+            if not self._check_amount_condition(amount, amount_operator, amount_value, amount_value2):
+                return False
+
+            # Check date range
+            if not self._check_date_condition(transaction.date, date_range):
+                return False
+
+            return True
+
+        except Exception as e:
+            print(f"Error checking rule match: {e}")
             return False
 
-        # Amount matching
-        amount = float(transaction.withdrawal or transaction.deposit)
-        if amount_op and amount_val is not None:
-            if amount_op == "Equal to" and amount != float(amount_val):
-                return False
-            elif amount_op == "Greater than" and amount <= float(amount_val):
-                return False
-            elif amount_op == "Less than" and amount >= float(amount_val):
-                return False
-            elif amount_op == "Between" and amount_val2 is not None:
-                if not (float(amount_val) <= amount <= float(amount_val2)):
-                    return False
+    def _check_description_conditions(self, description: str, conditions: List[tuple]) -> bool:
+        """
+        Check if a description matches the conditions using AND/OR logic
+        
+        Args:
+            description: Transaction description to check
+            conditions: List of tuples (operator, text, case_sensitive)
+            
+        Returns:
+            bool: True if description matches the conditions
+        """
+        if not conditions:
+            return True
 
-        # Date matching
-        from datetime import datetime, timedelta
-        trans_date = transaction.date
-        if date_range:
-            today = datetime.now()
-            if date_range == "Last 30 days":
-                if trans_date < (today - timedelta(days=30)):
-                    return False
-            elif date_range == "Last 90 days":
-                if trans_date < (today - timedelta(days=90)):
-                    return False
-            elif date_range == "This year":
-                if trans_date.year != today.year:
-                    return False
+        # First condition (no operator)
+        result = self._check_single_description(
+            description,
+            conditions[0][1],  # description_text
+            conditions[0][2]   # case_sensitive
+        )
+
+        # Process subsequent conditions with operators
+        for condition in conditions[1:]:
+            operator = condition[0]  # AND/OR
+            matches = self._check_single_description(
+                description,
+                condition[1],  # description_text
+                condition[2]   # case_sensitive
+            )
+
+            if operator == 'AND':
+                result = result and matches
+            else:  # OR
+                result = result or matches
+
+        return result
+
+    def _check_single_description(self, description: str, match_text: str, case_sensitive: bool) -> bool:
+        """
+        Check if a single description condition matches
+        
+        Args:
+            description: Transaction description to check
+            match_text: Text to match against
+            case_sensitive: Whether to match case sensitively
+            
+        Returns:
+            bool: True if description matches the condition
+        """
+        if not case_sensitive:
+            description = description.lower()
+            match_text = match_text.lower()
+        return match_text in description
+
+    def _check_amount_condition(self, amount: Decimal, operator: str, 
+                            value1: Optional[float], value2: Optional[float]) -> bool:
+        """
+        Check if an amount matches the amount condition
+        
+        Args:
+            amount: Transaction amount to check
+            operator: Comparison operator ("Equal to", "Greater than", etc.)
+            value1: Primary comparison value
+            value2: Secondary comparison value (for "Between" operator)
+            
+        Returns:
+            bool: True if amount matches the condition
+        """
+        if operator == "Any" or not value1:
+            return True
+
+        amount = abs(amount)  # Work with absolute values
+        value1 = Decimal(str(value1))
+        value2 = Decimal(str(value2)) if value2 else None
+
+        if operator == "Equal to":
+            return abs(amount - value1) < Decimal('0.01')
+        elif operator == "Greater than":
+            return amount > value1
+        elif operator == "Less than":
+            return amount < value1
+        elif operator == "Between" and value2:
+            return value1 <= amount <= value2
+
+        return False
+
+    def _check_date_condition(self, trans_date: datetime, date_range: str) -> bool:
+        """
+        Check if a date falls within the specified range
+        
+        Args:
+            trans_date: Transaction date to check
+            date_range: Date range specification
+            
+        Returns:
+            bool: True if date falls within the range
+        """
+        if not date_range or date_range == "Any":
+            return True
+
+        today = datetime.now()
+
+        if date_range == "Last 30 days":
+            return (today - trans_date).days <= 30
+        elif date_range == "Last 90 days":
+            return (today - trans_date).days <= 90
+        elif date_range == "This year":
+            return trans_date.year == today.year
 
         return True
+
+    def apply_auto_categorisation_rules(self):
+        """Apply auto-categorisation rules to uncategorised transactions"""
+        try:
+            # Get all active rules
+            cursor = self.db.execute("""
+                SELECT id, category_id, account_id, amount_operator, 
+                    amount_value, amount_value2, date_range
+                FROM auto_categorisation_rules
+                WHERE apply_future = 1
+            """)
+            rules = cursor.fetchall()
+
+            # Get uncategorised transactions
+            transactions = self.get_transactions("uncategorised")
+
+            for trans in transactions:
+                for rule in rules:
+                    if self._transaction_matches_rule(trans, rule):
+                        self.update_transaction_category(trans.id, rule[1])  # rule[1] is category_id
+                        break  # Stop after first matching rule
+
+            self.db.commit()
+
+        except Exception as e:
+            print(f"Error applying auto-categorisation rules: {e}")
+            self.db.rollback()
     
     def update_transaction_category(self, transaction_id: int, category_id: str) -> bool:
         """Update the category of a transaction"""

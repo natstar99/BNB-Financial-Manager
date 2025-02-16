@@ -6,12 +6,15 @@ from PySide6.QtWidgets import (
     QFormLayout, QGroupBox, QSpinBox
 )
 from decimal import Decimal
+from models.bank_account_model import BankAccountModel
 
 class AutoCategoryRuleDialog(QDialog):
     """Dialog for creating automatic categorisation rules"""
-    def __init__(self, category, parent=None):
+    def __init__(self, category, bank_account_model: BankAccountModel, parent=None):
         super().__init__(parent)
         self.category = category
+        self.bank_account_model = bank_account_model
+        self.description_conditions = []  # List to store multiple description conditions
         self.setup_ui()
     
     def setup_ui(self):
@@ -22,12 +25,18 @@ class AutoCategoryRuleDialog(QDialog):
         desc_group = QGroupBox("Description Matching")
         desc_layout = QVBoxLayout(desc_group)
         
-        self.desc_contains = QLineEdit()
-        desc_layout.addWidget(QLabel("Contains text:"))
-        desc_layout.addWidget(self.desc_contains)
+        # Container for description conditions
+        self.desc_container = QVBoxLayout()
         
-        self.desc_case_sensitive = QCheckBox("Case sensitive")
-        desc_layout.addWidget(self.desc_case_sensitive)
+        # Add initial description condition
+        self._add_description_condition()
+        
+        # Add button for new condition
+        add_condition_button = QPushButton("Add Another Description Condition")
+        add_condition_button.clicked.connect(self._add_description_condition)
+        
+        desc_layout.addLayout(self.desc_container)
+        desc_layout.addWidget(add_condition_button)
         
         layout.addWidget(desc_group)
         
@@ -53,14 +62,22 @@ class AutoCategoryRuleDialog(QDialog):
         
         layout.addWidget(amount_group)
         
-        # Account matching
+        # Account matching with dropdown
         account_group = QGroupBox("Account Matching")
         account_layout = QVBoxLayout(account_group)
-        
-        self.account_contains = QLineEdit()
-        account_layout.addWidget(QLabel("Account contains:"))
-        account_layout.addWidget(self.account_contains)
-        
+
+        self.account_combo = QComboBox()
+        self.account_combo.addItem("Any Account", None)  # Default option
+
+        # Get accounts from bank_account_model (using the one passed to the dialog)
+        accounts = self.bank_account_model.get_accounts()
+        for account in accounts:
+            display_text = f"{account.name} ({account.bank_name})"
+            self.account_combo.addItem(display_text, account.id)
+
+        account_layout.addWidget(QLabel("Select Account:"))
+        account_layout.addWidget(self.account_combo)
+
         layout.addWidget(account_group)
         
         # Date matching
@@ -96,8 +113,65 @@ class AutoCategoryRuleDialog(QDialog):
         button_layout.addWidget(cancel_button)
         layout.addLayout(button_layout)
     
+    def _add_description_condition(self):
+        """Add a new description condition row"""
+        condition_layout = QHBoxLayout()
+        
+        # If not the first condition, add AND/OR operator
+        if self.description_conditions:
+            operator = QComboBox()
+            operator.addItems(["AND", "OR"])
+            condition_layout.addWidget(operator)
+        
+        desc_contains = QLineEdit()
+        desc_contains.setPlaceholderText("Contains text...")
+        condition_layout.addWidget(desc_contains)
+        
+        case_sensitive = QCheckBox("Case sensitive")
+        condition_layout.addWidget(case_sensitive)
+        
+        # Add remove button (except for first condition)
+        if self.description_conditions:
+            remove_button = QPushButton("Remove")
+            remove_button.clicked.connect(lambda: self._remove_description_condition(condition_layout))
+            condition_layout.addWidget(remove_button)
+        
+        self.desc_container.addLayout(condition_layout)
+        self.description_conditions.append({
+            'layout': condition_layout,
+            'operator': operator if self.description_conditions else None,
+            'text': desc_contains,
+            'case_sensitive': case_sensitive
+        })
+    
+    def _remove_description_condition(self, layout):
+        """Remove a description condition"""
+        # Remove all widgets from the layout
+        while layout.count():
+            widget = layout.takeAt(0).widget()
+            if widget:
+                widget.deleteLater()
+        
+        # Remove from our list of conditions
+        self.description_conditions = [c for c in self.description_conditions if c['layout'] != layout]
+    
     def get_rule_data(self):
         """Get the rule configuration data"""
+        # Process description conditions
+        description_conditions = []
+        for condition in self.description_conditions:
+            if condition['operator']:
+                operator = condition['operator'].currentText()
+            else:
+                operator = None  # First condition doesn't have an operator
+            
+            description_conditions.append({
+                'operator': operator,
+                'text': condition['text'].text(),
+                'case_sensitive': condition['case_sensitive'].isChecked()
+            })
+        
+        # Process amount values
         amount_value = None
         amount_value_2 = None
         try:
@@ -111,8 +185,7 @@ class AutoCategoryRuleDialog(QDialog):
         return {
             'category_id': self.category.id,
             'description': {
-                'text': self.desc_contains.text(),
-                'case_sensitive': self.desc_case_sensitive.isChecked()
+                'conditions': description_conditions
             },
             'amount': {
                 'operator': self.amount_operator.currentText(),
@@ -120,7 +193,7 @@ class AutoCategoryRuleDialog(QDialog):
                 'value2': amount_value_2
             },
             'account': {
-                'text': self.account_contains.text()
+                'id': self.account_combo.currentData()
             },
             'date_range': self.date_range.currentText(),
             'apply_to': {
@@ -128,3 +201,71 @@ class AutoCategoryRuleDialog(QDialog):
                 'future': self.apply_future.isChecked()
             }
         }
+
+    def set_rule_data(self, rule: dict):
+        """
+        Pre-fill the dialog with existing rule data
+        
+        Args:
+            rule: Dictionary containing the rule data:
+            {
+                'description_conditions': List of conditions with operator, text, and case_sensitive
+                'amount_operator': str,
+                'amount_value': float,
+                'amount_value2': float,
+                'account_id': str,
+                'date_range': str,
+                'apply_future': bool
+            }
+        """
+        try:
+            # Clear existing description conditions
+            while self.desc_container.count():
+                layout_item = self.desc_container.takeAt(0)
+                if layout_item.layout():
+                    while layout_item.layout().count():
+                        widget = layout_item.layout().takeAt(0).widget()
+                        if widget:
+                            widget.deleteLater()
+                layout_item.layout().deleteLater()
+            self.description_conditions.clear()
+
+            # Add description conditions
+            for condition in rule['description_conditions']:
+                self._add_description_condition()
+                current_condition = self.description_conditions[-1]
+                
+                # Set the operator if it exists (not for first condition)
+                if condition['operator'] and current_condition.get('operator'):
+                    current_condition['operator'].setCurrentText(condition['operator'])
+                
+                # Set the text and case sensitivity
+                current_condition['text'].setText(condition['text'])
+                current_condition['case_sensitive'].setChecked(condition['case_sensitive'])
+
+            # Set amount conditions
+            if rule['amount_operator']:
+                self.amount_operator.setCurrentText(rule['amount_operator'])
+            if rule['amount_value'] is not None:
+                self.amount_value.setText(str(rule['amount_value']))
+            if rule['amount_value2'] is not None:
+                self.amount_value_2.setText(str(rule['amount_value2']))
+                self.amount_value_2.setVisible(rule['amount_operator'] == "Between")
+
+            # Set account
+            if rule['account_id']:
+                index = self.account_combo.findData(rule['account_id'])
+                if index >= 0:
+                    self.account_combo.setCurrentIndex(index)
+
+            # Set date range
+            if rule['date_range']:
+                index = self.date_range.findText(rule['date_range'])
+                if index >= 0:
+                    self.date_range.setCurrentIndex(index)
+
+            # Set apply flags
+            self.apply_future.setChecked(rule['apply_future'])
+
+        except Exception as e:
+            print(f"Error setting rule data: {e}")

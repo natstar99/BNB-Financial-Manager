@@ -160,7 +160,8 @@ class MainWindow(QMainWindow):
         # Add views to layout
         self.transaction_view = TransactionView(
             self.transaction_controller, 
-            self.category_controller
+            self.category_controller,
+            self.bank_account_model  # Add this parameter
         )
         layout.addWidget(self.transaction_view, stretch=2)
         layout.addWidget(right_tabs, stretch=1)

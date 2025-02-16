@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
     QPushButton, QHeaderView, QMessageBox, QWidget
 )
-from PySide6.QtCore import Qt
+from views.auto_categorise_dialog import AutoCategoryRuleDialog
 
 class AutoCategorisationRulesView(QDialog):
     """Dialog for viewing and managing auto-categorisation rules"""
@@ -12,6 +12,8 @@ class AutoCategorisationRulesView(QDialog):
     def __init__(self, transaction_controller, parent=None):
         super().__init__(parent)
         self.controller = transaction_controller
+        self.category_controller = transaction_controller.category_controller
+        self.bank_account_model = transaction_controller.bank_account_model
         self.setup_ui()
         self.load_rules()
     
@@ -24,10 +26,15 @@ class AutoCategorisationRulesView(QDialog):
         
         # Create rules table
         self.rules_table = QTableWidget()
-        self.rules_table.setColumnCount(8)
+        self.rules_table.setColumnCount(7)
         self.rules_table.setHorizontalHeaderLabels([
-            "Category", "Description", "Amount Rule", "Account",
-            "Date Range", "Apply to Future", "Actions", "ID"
+            "Category",
+            "Description Conditions",
+            "Amount Rule",
+            "Account",
+            "Date Range",
+            "Apply to Future",
+            "Actions"
         ])
         
         # Configure table
@@ -39,8 +46,6 @@ class AutoCategorisationRulesView(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(7, QHeaderView.Fixed)  # Hide ID column
-        self.rules_table.hideColumn(7)  # Hide the ID column
         
         layout.addWidget(self.rules_table)
         
@@ -60,25 +65,23 @@ class AutoCategorisationRulesView(QDialog):
             # Category
             self.rules_table.setItem(row, 0, QTableWidgetItem(rule['category_name']))
             
-            # Description
-            desc_text = rule['description_text']
-            if rule['description_case_sensitive']:
-                desc_text += " (Case Sensitive)"
-            self.rules_table.setItem(row, 1, QTableWidgetItem(desc_text))
+            # Description Conditions
+            desc_conditions = self._format_description_conditions(rule['description_conditions'])
+            self.rules_table.setItem(row, 1, QTableWidgetItem(desc_conditions))
             
             # Amount Rule
-            amount_text = rule['amount_operator']
-            if rule['amount_value'] is not None:
-                amount_text += f" ${rule['amount_value']:.2f}"
-                if rule['amount_value2'] is not None:
-                    amount_text += f" to ${rule['amount_value2']:.2f}"
+            amount_text = self._format_amount_rule(
+                rule['amount_operator'],
+                rule['amount_value'],
+                rule['amount_value2']
+            )
             self.rules_table.setItem(row, 2, QTableWidgetItem(amount_text))
             
             # Account
-            self.rules_table.setItem(row, 3, QTableWidgetItem(rule['account_text'] or "Any"))
+            self.rules_table.setItem(row, 3, QTableWidgetItem(rule['account_name']))
             
             # Date Range
-            self.rules_table.setItem(row, 4, QTableWidgetItem(rule['date_range']))
+            self.rules_table.setItem(row, 4, QTableWidgetItem(rule['date_range'] or "Any"))
             
             # Apply to Future
             self.rules_table.setItem(row, 5, QTableWidgetItem(
@@ -87,7 +90,7 @@ class AutoCategorisationRulesView(QDialog):
             # Actions
             actions_widget = QWidget()
             actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(0, 0, 0, 0)
+            actions_layout.setContentsMargins(4, 0, 4, 0)
             
             edit_button = QPushButton("Edit")
             edit_button.clicked.connect(lambda checked, r=rule: self._edit_rule(r))
@@ -97,30 +100,73 @@ class AutoCategorisationRulesView(QDialog):
             actions_layout.addWidget(edit_button)
             actions_layout.addWidget(delete_button)
             self.rules_table.setCellWidget(row, 6, actions_widget)
+    
+    def _format_description_conditions(self, conditions):
+        """Format description conditions for display"""
+        if not conditions:
+            return "Any"
             
-            # Hidden ID column
-            self.rules_table.setItem(row, 7, QTableWidgetItem(str(rule['id'])))
+        parts = []
+        for condition in conditions:
+            text = f'"{condition["text"]}"'
+            if condition['case_sensitive']:
+                text += " (Case Sensitive)"
+            if condition['operator']:
+                parts.append(f"{condition['operator']} {text}")
+            else:
+                parts.append(text)
+        return " ".join(parts)
+    
+    def _format_amount_rule(self, operator, value1, value2):
+        """Format amount rule for display"""
+        if operator == "Any" or not value1:
+            return "Any"
+            
+        amount_text = f"{operator}"
+        if value1 is not None:
+            amount_text += f" ${value1:.2f}"
+            if operator == "Between" and value2 is not None:
+                amount_text += f" to ${value2:.2f}"
+        
+        return amount_text
     
     def _edit_rule(self, rule):
         """Handle editing a rule"""
-        # Show the auto categorisation dialog with pre-filled data
-        from views.auto_categorise_dialog import AutoCategoryRuleDialog
-        dialog = AutoCategoryRuleDialog(rule['category_id'], self)
-        dialog.set_rule_data(rule)
-        if dialog.exec_():
-            # Update the rule
-            if self.controller.update_auto_categorisation_rule(
-                rule['id'], dialog.get_rule_data()):
-                self.load_rules()  # Refresh the table
-            else:
-                QMessageBox.warning(self, "Error", "Failed to update rule")
+        try:
+            # Get the category object first
+            category = self.controller.category_controller.model.get_categories()
+            category_obj = next((c for c in category if c.id == rule['category_id']), None)
+            
+            if not category_obj:
+                QMessageBox.warning(self, "Error", "Could not find associated category")
+                return
+
+            # Create dialog with actual category object
+            dialog = AutoCategoryRuleDialog(
+                category=category_obj,
+                bank_account_model=self.controller.bank_account_model,
+                parent=self
+            )
+            
+            # Pre-fill existing rule data
+            dialog.set_rule_data(rule)
+            
+            if dialog.exec_():
+                if self.controller.update_auto_categorisation_rule(
+                    rule['id'], dialog.get_rule_data()):
+                    self.load_rules()  # Refresh the table
+                else:
+                    QMessageBox.warning(self, "Error", "Failed to update rule")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error editing rule: {str(e)}")
     
     def _delete_rule(self, rule):
         """Handle deleting a rule"""
         if QMessageBox.question(
             self,
             "Confirm Delete",
-            "Are you sure you want to delete this rule?"
+            "Are you sure you want to delete this rule?",
+            QMessageBox.Yes | QMessageBox.No
         ) == QMessageBox.Yes:
             if self.controller.delete_auto_categorisation_rule(rule['id']):
                 self.load_rules()  # Refresh the table

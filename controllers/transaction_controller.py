@@ -12,16 +12,20 @@ import os
 
 class TransactionController:
     """Controller for managing transaction operations"""
-    def __init__(self, transaction_model: TransactionModel, bank_account_model: Optional[BankAccountModel] = None):
+    def __init__(self, transaction_model: TransactionModel, 
+                 bank_account_model: Optional[BankAccountModel] = None,
+                 category_controller = None):
         """
         Initialise the transaction controller
         
         Args:
             transaction_model: The transaction model instance
             bank_account_model: Optional bank account model instance for balance tracking
+            category_controller: CategoryController instance for category operations
         """
         self.model = transaction_model
         self.bank_account_model = bank_account_model
+        self.category_controller = category_controller
     
     def get_transactions(self, filter_type: str = "all") -> List:
         """Retrieve transactions based on filter"""
