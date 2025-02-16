@@ -31,13 +31,41 @@ class TransactionController:
         """Retrieve transactions based on filter"""
         return self.model.get_transactions(filter_type)
     
-    def categorise_transaction(self, transaction_id: int, category_id: str):
-        """Assign a category to a transaction"""
+    def categorise_transaction(self, transaction_id: int, category_id: str, is_internal_transfer: bool = False):
+        """
+        Assign a category to a transaction or mark it as an internal transfer
+        
+        Args:
+            transaction_id: The ID of the transaction to categorise
+            category_id: The category ID to assign (None if internal transfer)
+            is_internal_transfer: Flag indicating if this is an internal transfer
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
-            self.model.update_transaction_category(transaction_id, category_id)
+            if is_internal_transfer:
+                self.model.db.execute("""
+                    UPDATE transactions 
+                    SET category_id = NULL,
+                        is_internal_transfer = 1,
+                        is_matched = 1
+                    WHERE id = ?
+                """, (transaction_id,))
+            else:
+                self.model.db.execute("""
+                    UPDATE transactions 
+                    SET category_id = ?,
+                        is_internal_transfer = 0,
+                        is_matched = 0
+                    WHERE id = ?
+                """, (category_id, transaction_id))
+                
+            self.model.db.commit()
             return True
         except Exception as e:
             print(f"Error categorizing transaction: {e}")
+            self.model.db.rollback()
             return False
         
     def create_auto_categorisation_rule(self, rule_data: dict) -> bool:

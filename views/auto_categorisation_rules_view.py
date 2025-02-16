@@ -62,8 +62,11 @@ class AutoCategorisationRulesView(QDialog):
         self.rules_table.setRowCount(len(rules))
         
         for row, rule in enumerate(rules):
-            # Category
-            self.rules_table.setItem(row, 0, QTableWidgetItem(rule['category_name']))
+            # Category - Handle internal transfers specially
+            if rule['category_id'] == '0':
+                self.rules_table.setItem(row, 0, QTableWidgetItem("Internal Transfer"))
+            else:
+                self.rules_table.setItem(row, 0, QTableWidgetItem(rule['category_name']))
             
             # Description Conditions
             desc_conditions = self._format_description_conditions(rule['description_conditions'])
@@ -133,20 +136,29 @@ class AutoCategorisationRulesView(QDialog):
     def _edit_rule(self, rule):
         """Handle editing a rule"""
         try:
-            # Get the category object first
-            category = self.controller.category_controller.model.get_categories()
-            category_obj = next((c for c in category if c.id == rule['category_id']), None)
-            
-            if not category_obj:
-                QMessageBox.warning(self, "Error", "Could not find associated category")
-                return
+            # Special handling for internal transfer rules
+            if rule['category_id'] == '0':
+                dialog = AutoCategoryRuleDialog(
+                    None,  # No category for internal transfers
+                    self.bank_account_model,
+                    True,  # is_internal_transfer flag
+                    self
+                )
+            else:
+                # Get the category object first
+                category = self.controller.category_controller.model.get_categories()
+                category_obj = next((c for c in category if c.id == rule['category_id']), None)
+                
+                if not category_obj:
+                    QMessageBox.warning(self, "Error", "Could not find associated category")
+                    return
 
-            # Create dialog with actual category object
-            dialog = AutoCategoryRuleDialog(
-                category=category_obj,
-                bank_account_model=self.controller.bank_account_model,
-                parent=self
-            )
+                dialog = AutoCategoryRuleDialog(
+                    category_obj,
+                    self.bank_account_model,
+                    False,  # is_internal_transfer flag
+                    self
+                )
             
             # Pre-fill existing rule data
             dialog.set_rule_data(rule)

@@ -105,14 +105,40 @@ class TransactionTableModel(QAbstractTableModel):  # Changed to QAbstractTableMo
         return flags
     
     def setData(self, index, value, role=Qt.EditRole):
-        """Handle data changes"""
+        """
+        Handle data changes in the model
+        
+        Args:
+            index: The QModelIndex of the cell being changed
+            value: The new value (in this case, the selected category or internal transfer status)
+            role: The role being used for the change
+            
+        Returns:
+            bool: True if the change was successful, False otherwise
+        """
         if role == Qt.EditRole and index.column() == 5:  # Category column
             transaction = self.transactions[index.row()]
-            success = self.controller.categorise_transaction(
-                transaction.id, value.id if value else None)
+            
+            # Check if this is a CategoryPickerDialog result with internal transfer info
+            if isinstance(value, tuple) and len(value) == 2:
+                category, is_internal = value
+                success = self.controller.categorise_transaction(
+                    transaction.id, 
+                    category.id if category else None,
+                    is_internal
+                )
+            else:
+                # Handle regular category selection
+                success = self.controller.categorise_transaction(
+                    transaction.id,
+                    value.id if value else None,
+                    False
+                )
+                
             if success:
                 self.refresh_data()
                 return True
+                
         return False
     
 class TransactionView(QWidget):
@@ -187,23 +213,49 @@ class TransactionView(QWidget):
         layout.addWidget(self.table_view)
     
     def _handle_cell_double_click(self, index):
-        """Handle double-click on table cells"""
+        """
+        Handle double-click on table cells for category selection and internal transfer marking
+        
+        Args:
+            index: The QModelIndex of the clicked cell
+        """
         if index.column() == 5:  # Category column
             dialog = CategoryPickerDialog(self.category_controller, self)
-            if dialog.exec_() == QDialog.Accepted and dialog.selected_category:
-                self.table_model.setData(index, dialog.selected_category, Qt.EditRole)
+            if dialog.exec_() == QDialog.Accepted:
+                transaction = self.table_model.transactions[index.row()]
+                success = self.controller.categorise_transaction(
+                    transaction_id=transaction.id,
+                    category_id=dialog.selected_category.id if dialog.selected_category else None,
+                    is_internal_transfer=dialog.is_internal_transfer
+                )
+                if success:
+                    self.table_model.refresh_data()
     
     def _create_auto_rule(self):
         """Handle creating an auto-categorisation rule"""
         # First, select a category to create rules for
         dialog = CategoryPickerDialog(self.category_controller, self)
-        if dialog.exec_() == QDialog.Accepted and dialog.selected_category:
-            # Then show the rule creation dialog
-            rule_dialog = AutoCategoryRuleDialog(
-                dialog.selected_category,
-                self.bank_account_model,
-                self
-            )
+        if dialog.exec_() == QDialog.Accepted:
+            # Check if user selected internal transfer or category
+            if dialog.is_internal_transfer:
+                # Show rule dialog for internal transfer
+                rule_dialog = AutoCategoryRuleDialog(
+                    None,  # No category for internal transfers
+                    self.bank_account_model,
+                    True,  # is_internal_transfer flag
+                    self
+                )
+            elif dialog.selected_category:
+                # Show rule dialog for regular category
+                rule_dialog = AutoCategoryRuleDialog(
+                    dialog.selected_category,
+                    self.bank_account_model,
+                    False,  # is_internal_transfer flag
+                    self
+                )
+            else:
+                return  # No selection made
+                
             if rule_dialog.exec_() == QDialog.Accepted:
                 rule_data = rule_dialog.get_rule_data()
                 success = self.controller.create_auto_categorisation_rule(rule_data)

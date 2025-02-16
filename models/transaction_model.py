@@ -239,9 +239,21 @@ class TransactionModel:
             return False
 
     def create_auto_categorisation_rule(self, rule_data: dict) -> bool:
-        """Create a new auto-categorisation rule"""
+        """
+        Create a new auto-categorisation rule.
+        For internal transfers, we use '0' as a special category_id to indicate internal transfer.
+        
+        Args:
+            rule_data: Dictionary containing rule configuration
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
         try:
             self.db.execute("BEGIN TRANSACTION")
+            
+            # For internal transfers, use '0' as a special category_id
+            category_id = '0' if rule_data['category_id'] is None else rule_data['category_id']
             
             # Insert main rule
             cursor = self.db.execute("""
@@ -250,7 +262,7 @@ class TransactionModel:
                     account_id, date_range, apply_future
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
-                rule_data['category_id'],
+                category_id,
                 rule_data['amount']['operator'],
                 float(rule_data['amount']['value']) if rule_data['amount']['value'] else None,
                 float(rule_data['amount']['value2']) if rule_data['amount']['value2'] else None,
@@ -301,7 +313,10 @@ class TransactionModel:
                 SELECT 
                     r.id,
                     r.category_id,
-                    c.name as category_name,
+                    CASE 
+                        WHEN r.category_id = '0' THEN NULL
+                        ELSE c.name 
+                    END as category_name,
                     r.amount_operator,
                     r.amount_value,
                     r.amount_value2,
@@ -310,7 +325,7 @@ class TransactionModel:
                     r.date_range,
                     r.apply_future
                 FROM auto_categorisation_rules r
-                JOIN categories c ON r.category_id = c.id
+                LEFT JOIN categories c ON r.category_id = c.id AND r.category_id != '0'
                 LEFT JOIN bank_accounts ba ON r.account_id = ba.id
                 ORDER BY c.name
             """)
@@ -362,38 +377,16 @@ class TransactionModel:
         
         Args:
             rule_id: ID of the rule to update
-            rule_data: Dictionary containing updated rule configuration:
-            {
-                'category_id': str,
-                'description': {
-                    'conditions': [
-                        {
-                            'operator': str or None,  # None for first condition
-                            'text': str,
-                            'case_sensitive': bool
-                        }
-                    ]
-                },
-                'amount': {
-                    'operator': str,
-                    'value': Decimal,
-                    'value2': Optional[Decimal]
-                },
-                'account': {
-                    'id': str or None
-                },
-                'date_range': str,
-                'apply_to': {
-                    'existing': bool,
-                    'future': bool
-                }
-            }
+            rule_data: Dictionary containing updated rule configuration
         
         Returns:
             bool: True if update was successful, False otherwise
         """
         try:
             self.db.execute("BEGIN TRANSACTION")
+            
+            # Handle internal transfers by using '0' as category_id
+            category_id = '0' if rule_data['category_id'] is None else rule_data['category_id']
             
             # Update main rule
             self.db.execute("""
@@ -407,7 +400,7 @@ class TransactionModel:
                     apply_future = ?
                 WHERE id = ?
             """, (
-                rule_data['category_id'],
+                category_id,
                 rule_data['amount']['operator'],
                 float(rule_data['amount']['value']) if rule_data['amount']['value'] else None,
                 float(rule_data['amount']['value2']) if rule_data['amount']['value2'] else None,
@@ -650,7 +643,26 @@ class TransactionModel:
             for trans in transactions:
                 for rule in rules:
                     if self._transaction_matches_rule(trans, rule):
-                        self.update_transaction_category(trans.id, rule[1])  # rule[1] is category_id
+                        category_id = rule[1]  # rule[1] is category_id
+                        
+                        if category_id == '0':  # Special case for internal transfers
+                            # This is an internal transfer rule
+                            self.db.execute("""
+                                UPDATE transactions
+                                SET category_id = NULL,
+                                    is_internal_transfer = 1,
+                                    is_matched = 1
+                                WHERE id = ?
+                            """, (trans.id,))
+                        else:
+                            # Regular category rule
+                            self.db.execute("""
+                                UPDATE transactions
+                                SET category_id = ?,
+                                    is_internal_transfer = 0,
+                                    is_matched = 0
+                                WHERE id = ?
+                            """, (category_id, trans.id))
                         break  # Stop after first matching rule
 
             self.db.commit()

@@ -3,22 +3,35 @@
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QLineEdit, QComboBox, QCheckBox,
-    QFormLayout, QGroupBox, QSpinBox
+    QFormLayout, QGroupBox, QRadioButton
 )
 from decimal import Decimal
 from models.bank_account_model import BankAccountModel
 
 class AutoCategoryRuleDialog(QDialog):
     """Dialog for creating automatic categorisation rules"""
-    def __init__(self, category, bank_account_model: BankAccountModel, parent=None):
+    def __init__(self, category, bank_account_model: BankAccountModel, is_internal_transfer: bool = False, parent=None):
+        """
+        Initialise the auto categorisation rule dialog
+        
+        Args:
+            category: The category to create rules for (None if internal transfer)
+            bank_account_model: Model for managing bank accounts
+            is_internal_transfer: Flag indicating if this is an internal transfer rule
+            parent: Parent widget
+        """
         super().__init__(parent)
         self.category = category
         self.bank_account_model = bank_account_model
         self.description_conditions = []  # List to store multiple description conditions
+        self.is_internal_transfer = is_internal_transfer  # Track internal transfer selection
         self.setup_ui()
     
     def setup_ui(self):
-        self.setWindowTitle(f"Auto-Categorisation Rules - {self.category.name}")
+        """Set up the user interface"""
+        # Set appropriate title based on type
+        title = "Auto-Categorisation Rules - Internal Transfer" if self.is_internal_transfer else f"Auto-Categorisation Rules - {self.category.name}"
+        self.setWindowTitle(title)
         layout = QVBoxLayout(self)
         
         # Description matching
@@ -143,6 +156,12 @@ class AutoCategoryRuleDialog(QDialog):
             'text': desc_contains,
             'case_sensitive': case_sensitive
         })
+
+    def _handle_type_change(self, checked):
+        """Handle changes between regular category and internal transfer"""
+        self.is_internal_transfer = not checked
+        if hasattr(self, 'category_selector'):
+            self.category_selector.setEnabled(checked)
     
     def _remove_description_condition(self, layout):
         """Remove a description condition"""
@@ -183,7 +202,7 @@ class AutoCategoryRuleDialog(QDialog):
             pass
         
         return {
-            'category_id': self.category.id,
+            'category_id': None if self.is_internal_transfer else self.category.id,
             'description': {
                 'conditions': description_conditions
             },
