@@ -146,8 +146,11 @@ class MainWindow(QMainWindow):
         # Create a tab widget for the right side
         right_tabs = QTabWidget()
         
-        # Create and add the category view
-        self.category_view = CategoryView(self.category_controller)
+        # Create and add the category view with both controllers
+        self.category_view = CategoryView(
+            self.category_controller,
+            self.transaction_controller
+        )
         right_tabs.addTab(self.category_view, "Categories")
         
         # Create and add the account view
@@ -161,7 +164,7 @@ class MainWindow(QMainWindow):
         self.transaction_view = TransactionView(
             self.transaction_controller, 
             self.category_controller,
-            self.bank_account_model  # Add this parameter
+            self.bank_account_model
         )
         layout.addWidget(self.transaction_view, stretch=2)
         layout.addWidget(right_tabs, stretch=1)

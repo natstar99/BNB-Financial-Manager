@@ -98,12 +98,20 @@ class CategoryController:
         return self.model.delete_category(category_id)
 
     def get_category_path(self, category_id: str) -> List[Category]:
-        """Get the full path of categories from root to given category"""
+        """
+        Get the full path of categories from root to given category
+        
+        Args:
+            category_id: The ID of the category to get the path for
+            
+        Returns:
+            List[Category]: List of categories from root to the given category
+        """
         path = []
         current_id = category_id
         
         while current_id:
-            categories = self.model.get_all_categories()
+            categories = self.model.get_categories()  # Changed from get_all_categories
             current = next((c for c in categories if c.id == current_id), None)
             if current:
                 path.insert(0, current)

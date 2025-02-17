@@ -7,8 +7,11 @@ from PySide6.QtWidgets import (
 from typing import List, Set
 from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex, Slot
 from controllers.category_controller import CategoryController
+from controllers.transaction_controller import TransactionController
 from views.add_category_dialog import AddCategoryDialog
 from views.bank_account_dialog import AddBankAccountDialog
+from models.category_model import CategoryType
+from views.category_transactions_dialog import CategoryTransactionsDialog
 
 class CategoryTreeModel(QAbstractItemModel):
     """Model for displaying categories in a tree view"""
@@ -151,13 +154,15 @@ class CategoryTreeModel(QAbstractItemModel):
 
 class CategoryView(QWidget):
     """Widget for displaying and managing categories"""
-    def __init__(self, controller: CategoryController):
+    def __init__(self, category_controller: CategoryController, 
+                 transaction_controller: TransactionController):
         super().__init__()
-        self.controller = controller
+        self.controller = category_controller
+        self.transaction_controller = transaction_controller
         self.expanded_states = []
         self._setup_ui()
         self._setup_connections()
-    
+
     def _setup_ui(self):
         """Initialise the user interface"""
         layout = QVBoxLayout(self)
@@ -232,6 +237,8 @@ class CategoryView(QWidget):
         self.add_button.clicked.connect(self._add_category)
         self.delete_button.clicked.connect(self._delete_category)
         self.tree_view.customContextMenuRequested.connect(self._show_context_menu)
+        # Add double-click handler
+        self.tree_view.doubleClicked.connect(self._handle_double_click)
     
     @Slot()
     def _add_category(self):
@@ -379,6 +386,11 @@ class CategoryView(QWidget):
             item = current.internalPointer()['item']
             if item.parent_id is not None:  # Not a root category
                 menu.addAction("Delete", self._delete_category)
+            
+            # Add View Transactions action
+            if item.category_type == CategoryType.TRANSACTION:
+                menu.addAction("View Category Transactions", 
+                             lambda: self._show_category_transactions(item))
         
         if menu.actions():
             menu.exec_(self.tree_view.viewport().mapToGlobal(position))
@@ -612,3 +624,24 @@ class CategoryView(QWidget):
                 return False
         
         find_and_select(QModelIndex())
+
+    def _handle_double_click(self, index):
+        """Handle double-click on category items"""
+        if index.isValid():
+            item = index.internalPointer()['item']
+            if item.category_type == CategoryType.TRANSACTION:
+                self._show_category_transactions(item)
+
+    def _show_category_transactions(self, category):
+        """
+        Show the transactions dialog for a category
+        
+        Args:
+            category: The category whose transactions to display
+        """
+        dialog = CategoryTransactionsDialog(
+            category,
+            self.transaction_controller,
+            self
+        )
+        dialog.exec_()
