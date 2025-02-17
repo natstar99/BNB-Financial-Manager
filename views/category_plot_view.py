@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTreeView, 
     QRadioButton, QButtonGroup, QComboBox, 
-    QDateEdit, QLabel, QFrame
+    QDateEdit, QLabel, QDialog
 )
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtWebEngineWidgets import QWebEngineView  # Add this import
@@ -290,22 +290,19 @@ class CategoryPlotView(QWidget):
     def _process_data(self):
         """Process transaction data for plotting"""
         selected_categories = self._get_selected_categories()
-        print(f"Selected categories: {[c.name for c in selected_categories]}")
-        
         if not selected_categories:
-            print("No categories selected")
             return None, []
 
         start_date = self.start_date.date().toPython()
         end_date = self.end_date.date().toPython()
         
         # Get all transactions for selected categories
+        all_transactions = self.transaction_controller.get_transactions()
         transactions = []
         for category in selected_categories:
-            category_transactions = self.transaction_controller.get_transactions()
             # Filter by category and date range
             filtered_transactions = [
-                t for t in category_transactions 
+                t for t in all_transactions 
                 if t.category_id == category.id 
                 and start_date <= t.date.date() <= end_date
             ]
@@ -354,33 +351,22 @@ class CategoryPlotView(QWidget):
             value_col = 'net'
 
         # Group data
-        if self.independent_radio.isChecked():
-            grouped = df.groupby(['period', 'category_id'])[value_col].sum().reset_index()
-            # Pivot to get categories as columns
-            plot_data = grouped.pivot(
-                index='period', 
-                columns='category_id', 
-                values=value_col
-            ).fillna(0)
-        else:
-            grouped = df.groupby('period')[value_col].sum().reset_index()
-            plot_data = grouped.set_index('period')
-
-        # Handle cumulative sum for line plots
-        if self.line_radio.isChecked():
-            plot_data = plot_data.cumsum()
-
+        grouped = df.groupby(['period', 'category_id'])[value_col].sum().unstack(fill_value=0)
+        
         # Convert to list of dicts for React
         result_data = []
-        for period in plot_data.index:
+        for period in grouped.index:
             row_data = {'date': str(period)}
+            
             if self.independent_radio.isChecked():
-                row_data['values'] = {
-                    cat.id: float(plot_data.loc[period, cat.id])
-                    for cat in selected_categories
-                }
+                # Create a nested values object with category values
+                row_data['values'] = {}
+                for category in selected_categories:
+                    row_data['values'][category.id] = float(grouped[category.id][period])
             else:
-                row_data['combinedValue'] = float(plot_data.loc[period, value_col])
+                # Sum all categories for combined view
+                row_data['combinedValue'] = float(grouped.loc[period].sum())
+                
             result_data.append(row_data)
 
         return result_data, selected_categories
@@ -521,3 +507,32 @@ class CategoryPlotView(QWidget):
                     categories.append(item)
         
         return categories
+    
+class CategoryPlotDialog(QDialog):
+    """Dialog for displaying the category plot"""
+    
+    def __init__(self, category_controller, transaction_controller, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Category Analysis Plot")
+        self.resize(1200, 800)
+        
+        # Create the plot view
+        self.plot_view = CategoryPlotView(
+            category_controller,
+            transaction_controller
+        )
+        
+        # Set up dialog layout
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.plot_view)
+        
+        # Set dialog properties
+        self.setModal(True)
+        
+    def closeEvent(self, event):
+        """Handle dialog close event"""
+        # Clean up the web view
+        if hasattr(self.plot_view, 'plot_widget'):
+            self.plot_view.plot_widget.setHtml("")
+            self.plot_view.plot_widget.deleteLater()
+        super().closeEvent(event)

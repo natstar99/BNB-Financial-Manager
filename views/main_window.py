@@ -14,7 +14,7 @@ from views.multi_import_dialog import MultiFileImportDialog
 from models.bank_account_model import BankAccountModel
 from views.account_view import AccountView
 from models.bank_account_reconciliation import BankAccountReconciliation
-from views.category_plot_view import CategoryPlotView
+from views.category_plot_view import CategoryPlotDialog
 
 class MainWindow(QMainWindow):
     """Main application window that contains all views"""
@@ -272,18 +272,9 @@ class MainWindow(QMainWindow):
 
     def _show_category_plot(self):
         """Show the category plot dialog"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Category Analysis Plot")
-        dialog.resize(1200, 800)
-        
-        # Create the plot view
-        plot_view = CategoryPlotView(
+        dialog = CategoryPlotDialog(
             self.category_controller,
-            self.transaction_controller
+            self.transaction_controller,
+            self
         )
-        
-        # Set up dialog layout
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(plot_view)
-        
         dialog.exec_()
