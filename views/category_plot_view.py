@@ -297,12 +297,12 @@ class CategoryPlotView(QWidget):
         end_date = self.end_date.date().toPython()
         
         # Get all transactions for selected categories
-        all_transactions = self.transaction_controller.get_transactions()
         transactions = []
         for category in selected_categories:
+            category_transactions = self.transaction_controller.get_transactions()
             # Filter by category and date range
             filtered_transactions = [
-                t for t in all_transactions 
+                t for t in category_transactions 
                 if t.category_id == category.id 
                 and start_date <= t.date.date() <= end_date
             ]
@@ -351,22 +351,33 @@ class CategoryPlotView(QWidget):
             value_col = 'net'
 
         # Group data
-        grouped = df.groupby(['period', 'category_id'])[value_col].sum().unstack(fill_value=0)
-        
+        if self.independent_radio.isChecked():
+            grouped = df.groupby(['period', 'category_id'])[value_col].sum().reset_index()
+            # Pivot to get categories as columns
+            plot_data = grouped.pivot(
+                index='period', 
+                columns='category_id', 
+                values=value_col
+            ).fillna(0)
+        else:
+            grouped = df.groupby('period')[value_col].sum().reset_index()
+            plot_data = grouped.set_index('period')
+
+        # Handle cumulative sum for line plots
+        if self.line_radio.isChecked():
+            plot_data = plot_data.cumsum()
+
         # Convert to list of dicts for React
         result_data = []
-        for period in grouped.index:
+        for period in plot_data.index:
             row_data = {'date': str(period)}
-            
             if self.independent_radio.isChecked():
-                # Create a nested values object with category values
-                row_data['values'] = {}
-                for category in selected_categories:
-                    row_data['values'][category.id] = float(grouped[category.id][period])
+                row_data['values'] = {
+                    cat.id: float(plot_data.loc[period, cat.id])
+                    for cat in selected_categories
+                }
             else:
-                # Sum all categories for combined view
-                row_data['combinedValue'] = float(grouped.loc[period].sum())
-                
+                row_data['combinedValue'] = float(plot_data.loc[period, value_col])
             result_data.append(row_data)
 
         return result_data, selected_categories
