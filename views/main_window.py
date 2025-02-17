@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QMenuBar, QMenu, 
-    QToolBar, QStatusBar, QFileDialog, QMessageBox, QDialog, QTabWidget
+    QToolBar, QStatusBar, QFileDialog, QMessageBox, QDialog, QTabWidget, QVBoxLayout
 )
 from PySide6.QtGui import QIcon, QKeySequence, QAction
 from PySide6.QtCore import Qt, Slot
@@ -14,6 +14,7 @@ from views.multi_import_dialog import MultiFileImportDialog
 from models.bank_account_model import BankAccountModel
 from views.account_view import AccountView
 from models.bank_account_reconciliation import BankAccountReconciliation
+from views.category_plot_view import CategoryPlotView
 
 class MainWindow(QMainWindow):
     """Main application window that contains all views"""
@@ -95,6 +96,12 @@ class MainWindow(QMainWindow):
         toggle_cat_action.triggered.connect(
             lambda checked: self.category_view.setVisible(checked))
         view_menu.addAction(toggle_cat_action)
+
+        # Category Plot action
+        plot_action = QAction("Category &Plot", self)
+        plot_action.setStatusTip("View category analysis plots")
+        plot_action.triggered.connect(self._show_category_plot)
+        view_menu.addAction(plot_action)
         
         # Tools Menu
         tools_menu = menubar.addMenu("&Tools")
@@ -262,3 +269,21 @@ class MainWindow(QMainWindow):
             "Financial Management Application\n\n"
             "A tool for managing personal and business finances."
         )
+
+    def _show_category_plot(self):
+        """Show the category plot dialog"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Category Analysis Plot")
+        dialog.resize(1200, 800)
+        
+        # Create the plot view
+        plot_view = CategoryPlotView(
+            self.category_controller,
+            self.transaction_controller
+        )
+        
+        # Set up dialog layout
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(plot_view)
+        
+        dialog.exec_()
