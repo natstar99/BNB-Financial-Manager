@@ -180,6 +180,12 @@ class TransactionView(QWidget):
         # Add stretch to push buttons to the left
         cat_button_layout.addStretch()
         
+        # Add Categorise Selected button
+        self.categorise_selected_button = QPushButton("Categorise Selected")
+        self.categorise_selected_button.clicked.connect(self._categorise_selected)
+        self.categorise_selected_button.setEnabled(False)  # Initially disabled
+        cat_button_layout.addWidget(self.categorise_selected_button)
+        
         auto_cat_button = QPushButton("Create Auto-Categorisation Rule")
         auto_cat_button.clicked.connect(self._create_auto_rule)
         cat_button_layout.addWidget(auto_cat_button)
@@ -206,6 +212,13 @@ class TransactionView(QWidget):
         self.table_view.verticalHeader().setVisible(False)
         self.table_view.setAlternatingRowColors(True)
         self.table_view.setSortingEnabled(True)
+        
+        # Enable multi-selection
+        self.table_view.setSelectionMode(QTableView.ExtendedSelection)
+        self.table_view.setSelectionBehavior(QTableView.SelectRows)
+        
+        # Connect selection changed signal
+        self.table_view.selectionModel().selectionChanged.connect(self._handle_selection_changed)
         
         # Connect double-click handler for category selection
         self.table_view.doubleClicked.connect(self._handle_cell_double_click)
@@ -272,3 +285,40 @@ class TransactionView(QWidget):
         """Show the auto-categorisation rules management dialog"""
         dialog = AutoCategorisationRulesView(self.controller, self)
         dialog.exec_()
+
+    def _handle_selection_changed(self):
+        """
+        Handle changes in row selection.
+        Enables/disables the Categorise Selected button based on selection state.
+        """
+        selected_rows = self.table_view.selectionModel().selectedRows()
+        self.categorise_selected_button.setEnabled(len(selected_rows) > 0)
+    
+    def _categorise_selected(self):
+        """
+        Handle categorisation of multiple selected transactions.
+        Shows the category picker dialog and applies the selected category to all selected transactions.
+        """
+        selected_indexes = self.table_view.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+            
+        # Get the selected transactions
+        selected_transactions = [
+            self.table_model.transactions[index.row()]
+            for index in selected_indexes
+        ]
+        
+        # Show category picker dialog
+        dialog = CategoryPickerDialog(self.category_controller, self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Apply the category to all selected transactions
+            for transaction in selected_transactions:
+                self.controller.categorise_transaction(
+                    transaction_id=transaction.id,
+                    category_id=dialog.selected_category.id if dialog.selected_category else None,
+                    is_internal_transfer=dialog.is_internal_transfer
+                )
+            
+            # Refresh the view
+            self.table_model.refresh_data()
