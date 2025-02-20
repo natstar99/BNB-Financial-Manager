@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTableView, QDialog)
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex
+from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QTimer
 from controllers.transaction_controller import TransactionController
 from views.category_picker_dialog import CategoryPickerDialog
 from views.auto_categorise_dialog import AutoCategoryRuleDialog
@@ -10,7 +10,7 @@ from views.auto_categorisation_rules_view import AutoCategorisationRulesView
 from datetime import datetime
 from models.bank_account_model import BankAccountModel
 
-class TransactionTableModel(QAbstractTableModel):  # Changed to QAbstractTableModel
+class TransactionTableModel(QAbstractTableModel):
     """Model for displaying transactions in a table view"""
     
     # Define column indices for easier reference
@@ -28,6 +28,7 @@ class TransactionTableModel(QAbstractTableModel):  # Changed to QAbstractTableMo
     def __init__(self, controller):
         super().__init__()
         self.controller = controller
+        self.current_filter = "all" 
         self.transactions = self.controller.get_transactions()
 
     def rowCount(self, parent=QModelIndex()):
@@ -141,6 +142,20 @@ class TransactionTableModel(QAbstractTableModel):  # Changed to QAbstractTableMo
                 
         return False
     
+    def refresh_data(self, filter_type=None):
+        """
+        Refresh the model's data while maintaining filter state
+        
+        Args:
+            filter_type: Optional filter type to apply. If None, uses current filter
+        """
+        self.beginResetModel()
+        # Use provided filter_type or maintain current filter
+        if filter_type is not None:
+            self.current_filter = filter_type
+        self.transactions = self.controller.get_transactions(self.current_filter)
+        self.endResetModel()
+    
 class TransactionView(QWidget):
     def __init__(self, controller: TransactionController, category_controller, bank_account_model: BankAccountModel):
         super().__init__()
@@ -228,11 +243,12 @@ class TransactionView(QWidget):
     def _handle_cell_double_click(self, index):
         """
         Handle double-click on table cells for category selection and internal transfer marking
-        
-        Args:
-            index: The QModelIndex of the clicked cell
+        Maintains current filter and scroll position
         """
         if index.column() == 5:  # Category column
+            # Store current scroll position
+            scroll_pos = self._store_scroll_position()
+            
             dialog = CategoryPickerDialog(self.category_controller, self)
             if dialog.exec_() == QDialog.Accepted:
                 transaction = self.table_model.transactions[index.row()]
@@ -242,7 +258,10 @@ class TransactionView(QWidget):
                     is_internal_transfer=dialog.is_internal_transfer
                 )
                 if success:
+                    # Refresh using current filter
                     self.table_model.refresh_data()
+                    # Restore scroll position after brief delay to ensure view is updated
+                    QTimer.singleShot(50, lambda: self._restore_scroll_position(scroll_pos))
     
     def _create_auto_rule(self):
         """Handle creating an auto-categorisation rule"""
@@ -294,15 +313,26 @@ class TransactionView(QWidget):
         selected_rows = self.table_view.selectionModel().selectedRows()
         self.categorise_selected_button.setEnabled(len(selected_rows) > 0)
     
+    def _store_scroll_position(self):
+        """Store the current vertical scroll position"""
+        return self.table_view.verticalScrollBar().value()
+    
+    def _restore_scroll_position(self, position):
+        """Restore the vertical scroll position"""
+        self.table_view.verticalScrollBar().setValue(position)
+    
     def _categorise_selected(self):
         """
-        Handle categorisation of multiple selected transactions.
-        Shows the category picker dialog and applies the selected category to all selected transactions.
+        Handle categorisation of multiple selected transactions
+        Maintains current filter and scroll position
         """
         selected_indexes = self.table_view.selectionModel().selectedRows()
         if not selected_indexes:
             return
-            
+        
+        # Store current scroll position
+        scroll_pos = self._store_scroll_position()
+        
         # Get the selected transactions
         selected_transactions = [
             self.table_model.transactions[index.row()]
@@ -320,5 +350,7 @@ class TransactionView(QWidget):
                     is_internal_transfer=dialog.is_internal_transfer
                 )
             
-            # Refresh the view
+            # Refresh using current filter
             self.table_model.refresh_data()
+            # Restore scroll position after brief delay
+            QTimer.singleShot(50, lambda: self._restore_scroll_position(scroll_pos))
