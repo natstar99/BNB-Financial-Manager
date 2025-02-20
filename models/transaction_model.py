@@ -47,19 +47,29 @@ class TransactionModel:
         Returns:
             List of filtered transactions
         """
-        query = "SELECT * FROM transactions"
+        query = """
+            SELECT id, date, account, description, withdrawal, deposit, 
+                   category_id, tax_type, is_tax_deductible, is_hidden, 
+                   is_matched, is_internal_transfer
+            FROM transactions
+            WHERE 1=1
+        """
         params = []
         
         if filter_type == "uncategorised":
-            query += " WHERE category_id IS NULL AND is_internal_transfer = 0"
+            query += """ AND category_id IS NULL 
+                        AND is_internal_transfer = 0 
+                        AND is_hidden = 0"""
         elif filter_type == "categorised":
-            query += " WHERE category_id IS NOT NULL AND is_internal_transfer = 0"
+            query += """ AND category_id IS NOT NULL 
+                        AND is_internal_transfer = 0 
+                        AND is_hidden = 0"""
         elif filter_type == "internal_transfers":
-            query += " WHERE is_internal_transfer = 1"
+            query += " AND is_internal_transfer = 1"
         elif filter_type == "hidden":
-            query += " WHERE is_hidden = 1"
+            query += " AND is_hidden = 1"
         elif filter_type != "all":
-            query += " WHERE is_hidden = 0"  # Default to showing non-hidden
+            query += " AND is_hidden = 0"  # Default to showing non-hidden
         
         query += " ORDER BY date DESC"
         

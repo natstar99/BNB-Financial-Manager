@@ -52,10 +52,17 @@ class TransactionTableModel(QAbstractTableModel):
             transaction = self.transactions[index.row()]
             column = index.column()
             
-            # Special handling for internal transfers first
+            # Special handling for internal transfers and hidden transactions first
             if transaction.is_internal_transfer:
                 if column == 5:  # Category column
                     return "Internal Transfer"
+                elif column == 6:  # Tax Type column
+                    return "N/A"
+                elif column == 7:  # Tax Deductible column
+                    return "N/A"
+            elif transaction.is_hidden:
+                if column == 5:  # Category column
+                    return "Hidden"
                 elif column == 6:  # Tax Type column
                     return "N/A"
                 elif column == 7:  # Tax Deductible column
@@ -91,11 +98,18 @@ class TransactionTableModel(QAbstractTableModel):
         """Return item flags for the given index"""
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
 
-    def refresh_data(self, filter_type="all"):
-        """Refresh the model's data"""
-        # Begin model reset to notify views
+    def refresh_data(self, filter_type=None):
+        """
+        Refresh the model's data while maintaining filter state
+        
+        Args:
+            filter_type: Optional filter type to apply. If None, uses current filter
+        """
         self.beginResetModel()
-        self.transactions = self.controller.get_transactions(filter_type)
+        # Use provided filter_type or maintain current filter
+        if filter_type is not None:
+            self.current_filter = filter_type
+        self.transactions = self.controller.get_transactions(self.current_filter)
         self.endResetModel()
 
     def flags(self, index):
@@ -255,7 +269,8 @@ class TransactionView(QWidget):
                 success = self.controller.categorise_transaction(
                     transaction_id=transaction.id,
                     category_id=dialog.selected_category.id if dialog.selected_category else None,
-                    is_internal_transfer=dialog.is_internal_transfer
+                    is_internal_transfer=dialog.is_internal_transfer,
+                    is_hidden=dialog.is_hidden
                 )
                 if success:
                     # Refresh using current filter
@@ -347,7 +362,8 @@ class TransactionView(QWidget):
                 self.controller.categorise_transaction(
                     transaction_id=transaction.id,
                     category_id=dialog.selected_category.id if dialog.selected_category else None,
-                    is_internal_transfer=dialog.is_internal_transfer
+                    is_internal_transfer=dialog.is_internal_transfer,
+                    is_hidden=dialog.is_hidden
                 )
             
             # Refresh using current filter
