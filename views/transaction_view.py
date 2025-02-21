@@ -7,8 +7,12 @@ from controllers.transaction_controller import TransactionController
 from views.category_picker_dialog import CategoryPickerDialog
 from views.auto_categorise_dialog import AutoCategoryRuleDialog
 from views.auto_categorisation_rules_view import AutoCategorisationRulesView
+from views.transaction_filter import FilterBar
 from datetime import datetime
 from models.bank_account_model import BankAccountModel
+from typing import Dict, List
+from decimal import Decimal
+import decimal
 
 class TransactionTableModel(QAbstractTableModel):
     """Model for displaying transactions in a table view"""
@@ -30,6 +34,7 @@ class TransactionTableModel(QAbstractTableModel):
         self.controller = controller
         self.current_filter = "all" 
         self.transactions = self.controller.get_transactions()
+
 
     def rowCount(self, parent=QModelIndex()):
         """Return the number of rows in the model"""
@@ -169,6 +174,149 @@ class TransactionTableModel(QAbstractTableModel):
             self.current_filter = filter_type
         self.transactions = self.controller.get_transactions(self.current_filter)
         self.endResetModel()
+
+    def apply_filters(self, filters: Dict) -> List:
+        """
+        Apply filters to transactions
+        
+        Args:
+            filters: Dictionary containing filter logic and conditions
+            
+        Returns:
+            List of transactions that match the filters
+        """
+        # If no filters or conditions, use the base transaction list
+        if not filters or not filters['conditions']:
+            return self.controller.get_transactions(self.current_filter)
+        
+        # Start with the current filter's transactions
+        base_transactions = self.controller.get_transactions(self.current_filter)
+        filtered = []
+        
+        for transaction in base_transactions:
+            matches = []
+            
+            for condition in filters['conditions']:
+                field = condition['field']
+                operator = condition['operator']
+                value = condition['value']
+                match = False
+                
+                if field == "Description":
+                    text = transaction.description.lower()
+                    filter_text = str(value).lower()
+                    
+                    if operator == "Contains":
+                        match = filter_text in text
+                    elif operator == "Does not contain":
+                        match = filter_text not in text
+                    elif operator == "Equals":
+                        match = text == filter_text
+                    elif operator == "Does not equal":
+                        match = text != filter_text
+                        
+                elif field == "Amount":
+                    # Get the absolute value for comparison
+                    amount = abs(transaction.withdrawal or transaction.deposit)
+                    try:
+                        filter_value = abs(Decimal(str(value)))
+                        if operator == "Greater than":
+                            match = amount > filter_value
+                        elif operator == "Less than":
+                            match = amount < filter_value
+                        elif operator == "Equal to":
+                            match = abs(amount - filter_value) < Decimal('0.01')
+                        elif operator == "Between":
+                            # Handle between range if second value exists
+                            value2 = condition.get('value2')
+                            if value2:
+                                filter_value2 = abs(Decimal(str(value2)))
+                                match = filter_value <= amount <= filter_value2
+                    except (TypeError, ValueError, decimal.InvalidOperation):
+                        match = False
+                        
+                elif field == "Date":
+                    trans_date = transaction.date.date()
+                    try:
+                        filter_date = value.date() if isinstance(value, datetime) else value
+                        if operator == "After":
+                            match = trans_date > filter_date
+                        elif operator == "Before":
+                            match = trans_date < filter_date
+                        elif operator == "On":
+                            match = trans_date == filter_date
+                        elif operator == "Between":
+                            # Handle between range if second value exists
+                            value2 = condition.get('value2')
+                            if value2:
+                                filter_date2 = value2.date() if isinstance(value2, datetime) else value2
+                                match = filter_date <= trans_date <= filter_date2
+                    except (AttributeError, TypeError):
+                        match = False
+                        
+                elif field == "Account":
+                    if operator == "Is":
+                        match = transaction.account == value
+                    elif operator == "Is not":
+                        match = transaction.account != value
+                
+                matches.append(match)
+            
+            # Apply logical operator
+            if filters['logic'] == 'AND':
+                if all(matches):
+                    filtered.append(transaction)
+            else:  # OR
+                if any(matches):
+                    filtered.append(transaction)
+        
+        return filtered
+
+    def apply_filter_and_refresh(self, filters: Dict):
+        """
+        Apply filters and refresh the model, ensuring proper view updates
+        
+        Args:
+            filters: Dictionary containing:
+                - logic: str, 'AND' or 'OR' for combining conditions
+                - conditions: List of filter conditions, each containing:
+                    - field: str, the field to filter on (Description, Amount, Date, Account)
+                    - operator: str, the comparison operator
+                    - value: The filter value
+                    - value2: Optional second value for 'Between' operators
+        """
+        # Begin model reset - tells views to prepare for data change
+        self.beginResetModel()
+        
+        try:
+            # Store current scroll position if needed
+            current_scroll = self.parent().table_view.verticalScrollBar().value() if self.parent() else 0
+            
+            # Apply the filters to get updated transaction list
+            self.transactions = self.apply_filters(filters)
+            
+            # Emit layout changed signal to ensure views update properly
+            # This is crucial for complex models where data structure might change
+            self.layoutChanged.emit()
+            
+            # Update any summary or status information
+            if self.parent():
+                status_text = f"Showing {len(self.transactions)} transactions"
+                self.parent().parent().statusBar().showMessage(status_text, 3000)  # Show for 3 seconds
+                
+        except Exception as e:
+            # Log any errors during filter application
+            print(f"Error applying filters: {e}")
+            # Revert to unfiltered state
+            self.transactions = self.controller.get_transactions(self.current_filter)
+            
+        finally:
+            # Always ensure model reset is completed
+            self.endResetModel()
+            
+            # Restore scroll position if possible
+            if self.parent():
+                self.parent().table_view.verticalScrollBar().setValue(current_scroll)
     
 class TransactionView(QWidget):
     def __init__(self, controller: TransactionController, category_controller, bank_account_model: BankAccountModel):
@@ -176,11 +324,49 @@ class TransactionView(QWidget):
         self.controller = controller
         self.category_controller = category_controller
         self.bank_account_model = bank_account_model
+        self.pending_filters = None # Add instance variable for storing pending filters
         self._setup_ui()
     
     def _setup_ui(self):
         """Initialise the user interface"""
         layout = QVBoxLayout(self)
+
+        # Add FilterBar near the top
+        self.filter_bar = FilterBar(
+            accounts=self.bank_account_model.get_accounts()
+        )
+        # Update signal connection to store_pending_filters
+        self.filter_bar.filters_changed.connect(self._store_pending_filters)
+        layout.addWidget(self.filter_bar)
+        
+        # Create filter action buttons layout
+        filter_action_layout = QHBoxLayout()
+        
+        # Add refresh button
+        self.refresh_button = QPushButton("Apply Filters")
+        self.refresh_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                padding: 5px 15px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.refresh_button.clicked.connect(self._apply_pending_filters)
+        filter_action_layout.addWidget(self.refresh_button)
+        
+        # Add clear filters button
+        self.clear_filters_button = QPushButton("Clear Filters")
+        self.clear_filters_button.clicked.connect(self._clear_filters)
+        filter_action_layout.addWidget(self.clear_filters_button)
+        
+        # Add stretch to push buttons to the right
+        filter_action_layout.addStretch()
+        
+        layout.addLayout(filter_action_layout)
         
         # Create button container for all buttons
         all_buttons_layout = QVBoxLayout()
@@ -253,6 +439,80 @@ class TransactionView(QWidget):
         self.table_view.doubleClicked.connect(self._handle_cell_double_click)
         
         layout.addWidget(self.table_view)
+
+    def _store_pending_filters(self, filters: Dict):
+        """
+        Store filters when they change but don't apply them yet
+        
+        Args:
+            filters: Dictionary containing filter logic and conditions
+        """
+        print("Storing pending filters:", filters)  # Debug print
+        self.pending_filters = filters
+        # Enable/disable refresh button based on whether there are filters with actual conditions
+        has_filters = bool(filters and filters.get('conditions') and any(
+            condition.get('value') for condition in filters['conditions']
+        ))
+        self.refresh_button.setEnabled(has_filters)
+        self.clear_filters_button.setEnabled(has_filters)
+
+    def _apply_pending_filters(self):
+        """Apply the stored pending filters to the transaction view"""
+        print("Applying pending filters:", self.pending_filters)  # Debug print
+        if self.pending_filters is not None:
+            try:
+                # Store current scroll position
+                scroll_pos = self._store_scroll_position()
+                
+                # Apply the filters
+                self.table_model.apply_filter_and_refresh(self.pending_filters)
+                
+                # Update status bar with count of filtered transactions
+                filtered_count = len(self.table_model.transactions)
+                self.window().statusBar().showMessage(
+                    f"Showing {filtered_count} filtered transactions", 3000)
+                
+            except Exception as e:
+                print(f"Error applying filters: {e}")  # Debug print
+                self.window().statusBar().showMessage(
+                    f"Error applying filters: {str(e)}", 5000)
+            
+            # Restore scroll position after brief delay
+            QTimer.singleShot(50, lambda: self._restore_scroll_position(scroll_pos))
+
+    def _clear_filters(self):
+        """Clear all active filters and reset the view"""
+        # Clear the filter bar
+        self.filter_bar.clear_all()
+        
+        # Clear pending filters
+        self.pending_filters = None
+        
+        # Reset the model to show all transactions
+        self.table_model.refresh_data(self.table_model.current_filter)
+        
+        # Update status bar
+        self.window().statusBar().showMessage("Filters cleared", 3000)
+        
+        # Disable the filter action buttons
+        self.refresh_button.setEnabled(False)
+        self.clear_filters_button.setEnabled(False)
+
+    def _handle_filters_changed(self, filters: Dict):
+        """
+        Handle changes in filter conditions
+        
+        Args:
+            filters: Dictionary containing filter logic and conditions
+        """
+        # Store current scroll position
+        scroll_pos = self._store_scroll_position()
+        
+        # Apply filters
+        self.table_model.apply_filter_and_refresh(filters)
+        
+        # Restore scroll position after brief delay
+        QTimer.singleShot(50, lambda: self._restore_scroll_position(scroll_pos))
     
     def _handle_cell_double_click(self, index):
         """
