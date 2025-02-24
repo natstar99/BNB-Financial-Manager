@@ -1,0 +1,67 @@
+<!--File: views/analysis_plot_template.html -->
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+        <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+        <script src="https://unpkg.com/prop-types@15.7.2/prop-types.js"></script>
+        <script src="https://unpkg.com/recharts@2.1.12/umd/Recharts.js"></script>
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+            }
+            #root { 
+                width: 100vw;
+                height: 100vh;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                background-color: white;
+            }
+            .chart-container {
+                width: 100%;
+                height: 100%;
+                padding: 20px;
+                box-sizing: border-box;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="root">
+            <div class="chart-container">
+                Loading chart...
+            </div>
+        </div>
+        <script>
+            {analysis_plot}
+
+            function initChart() {
+                if (!window.React || !window.ReactDOM || !window.Recharts) {
+                    setTimeout(initChart, 100);
+                    return;
+                }
+
+                try {
+                    const plotConfig = {plot_config};
+                    
+                    ReactDOM.render(
+                        React.createElement(window.CategoryPlot, plotConfig),
+                        document.getElementById('root')
+                    );
+                } catch (error) {
+                    console.error('Error rendering chart:', error);
+                    document.getElementById('root').innerHTML = `
+                        <div style="color: red; padding: 20px;">
+                            Error rendering chart: ${error.message}
+                        </div>
+                    `;
+                }
+            }
+
+            window.onload = initChart;
+        </script>
+    </body>
+</html>

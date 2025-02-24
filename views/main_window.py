@@ -153,25 +153,6 @@ class MainWindow(QMainWindow):
         
         # Adjust layout stretches based on visible widgets
         self._adjust_layout_stretches()
-
-    def _adjust_layout_stretches(self):
-        """Adjust layout stretches based on visible widgets"""
-        visible_count = sum([
-            self.transaction_view.isVisible(),
-            self.category_view.isVisible(),
-            self.analysis_view.isVisible()
-        ])
-        
-        if visible_count == 0:
-            return  # Should never happen due to _toggle_view logic
-        
-        # Set stretches based on visible widgets
-        self.main_layout.setStretch(self.main_layout.indexOf(self.transaction_view),
-                                2 if self.transaction_view.isVisible() else 0)
-        self.main_layout.setStretch(self.main_layout.indexOf(self.category_view),
-                                1 if self.category_view.isVisible() else 0)
-        self.main_layout.setStretch(self.main_layout.indexOf(self.analysis_view),
-                                1 if self.analysis_view.isVisible() else 0)
     
     def _create_tool_bar(self):
         """Create the main toolbar"""

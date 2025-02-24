@@ -14,6 +14,7 @@ import json
 import numpy as np
 from models.category_model import Category, CategoryType
 from typing import List
+from pathlib import Path
 
 
 class CategoryPlotView(QWidget):
@@ -34,214 +35,6 @@ class CategoryPlotView(QWidget):
         self.category_view = category_view
         self._setup_ui()
         self._setup_connections()
-
-    @property
-    def category_plot_component(self):
-        """Get the JavaScript code for the React component for category plotting"""
-        return '''
-        ({data, plotType, valueType, displayMode, showAverage, categories}) => {
-            console.log('Component rendering with props:', {
-                plotType, 
-                valueType, 
-                displayMode, 
-                showAverage,
-                categoriesCount: categories.length,
-                dataPoints: data.length,
-                sampleData: data[0]
-            });
-
-            if (!window.Recharts) {
-                console.error('Recharts library not loaded');
-                return React.createElement('div', {
-                    style: {
-                        padding: '20px',
-                        backgroundColor: '#ffebee',
-                        border: '1px solid #ffcdd2',
-                        borderRadius: '4px'
-                    }
-                }, 'Error: Chart library not loaded');
-            }
-
-            // Extract Recharts components
-            const {
-                BarChart, Bar, LineChart, Line, XAxis, YAxis, 
-                CartesianGrid, Tooltip, Legend, ReferenceLine
-            } = window.Recharts;
-
-            // Calculate domain for Y axis to ensure 0 is centered
-            const getAllValues = () => {
-                const values = [];
-                data.forEach(item => {
-                    if (displayMode === 'independent') {
-                        Object.values(item.values || {}).forEach(v => values.push(v));
-                    } else {
-                        values.push(item.combinedValue);
-                    }
-                });
-                return values;
-            };
-
-            const values = getAllValues();
-            console.log('All values:', values);
-            const maxAbs = Math.max(Math.abs(Math.min(...values)), Math.abs(Math.max(...values)));
-            const domain = [-maxAbs, maxAbs];
-
-            // Format tooltip values
-            const formatValue = (value) => `$${Number(value).toFixed(2)}`;
-            
-            // Common props for both chart types
-            const commonProps = {
-                width: 800,
-                height: 400,
-                data,
-                margin: { top: 20, right: 30, left: 50, bottom: 20 }
-            };
-
-            // Common axis props
-            const commonAxisProps = {
-                YAxis: {
-                    domain: domain,
-                    tickFormatter: (value) => `$${value.toLocaleString()}`
-                }
-            };
-
-            // Calculate average if needed
-            const average = showAverage && plotType === 'column' ? 
-                data.reduce((sum, item) => {
-                    if (displayMode === 'independent') {
-                        return sum + Object.values(item.values || {}).reduce((a, b) => a + b, 0);
-                    }
-                    return sum + (item.combinedValue || 0);
-                }, 0) / data.length : null;
-
-            console.log('Rendering chart with:', {
-                width: commonProps.width,
-                height: commonProps.height,
-                dataLength: data.length,
-                hasAverage: Boolean(average),
-                domain
-            });
-            
-            try {
-                if (plotType === 'line') {
-                    return React.createElement(LineChart, 
-                        {...commonProps},
-                        React.createElement(CartesianGrid, { strokeDasharray: "3 3" }),
-                        React.createElement(XAxis, { dataKey: "date" }),
-                        React.createElement(YAxis, commonAxisProps.YAxis),
-                        React.createElement(Tooltip, { 
-                            formatter: formatValue,
-                            labelFormatter: (label) => `Period: ${label}`
-                        }),
-                        React.createElement(Legend, {
-                            verticalAlign: 'top',
-                            height: 36
-                        }),
-                        React.createElement(ReferenceLine, { 
-                            y: 0, 
-                            stroke: '#666', 
-                            strokeDasharray: "3 3",
-                            label: { value: '$0', position: 'right' }
-                        }),
-                        displayMode === 'independent' 
-                            ? categories.map((category, index) => {
-                                console.log(`Creating line for category ${category.name}`);
-                                return React.createElement(Line, {
-                                    key: category.id,
-                                    type: "monotone",
-                                    dataKey: `values.${category.id}`,
-                                    name: category.name,
-                                    stroke: `hsl(${(index * 137.5) % 360}, 70%, 50%)`,
-                                    strokeWidth: 2,
-                                    dot: false,
-                                    activeDot: { r: 4 },
-                                    onMouseEnter: (e) => {
-                                        console.log(`Line data for ${category.name}:`, 
-                                            data.map(d => ({
-                                                date: d.date, 
-                                                value: d.values[category.id]
-                                            }))
-                                        );
-                                    }
-                                })
-                            })
-                            : React.createElement(Line, {
-                                type: "monotone",
-                                dataKey: "combinedValue",
-                                name: "Combined",
-                                stroke: "#8884d8",
-                                strokeWidth: 2,
-                                dot: false,
-                                activeDot: { r: 4 }
-                            })
-                    );
-                }
-                
-                return React.createElement(BarChart,
-                    {...commonProps},
-                    React.createElement(CartesianGrid, { strokeDasharray: "3 3" }),
-                    React.createElement(XAxis, { dataKey: "date" }),
-                    React.createElement(YAxis, commonAxisProps.YAxis),
-                    React.createElement(Tooltip, { 
-                        formatter: formatValue,
-                        labelFormatter: (label) => `Period: ${label}`
-                    }),
-                    React.createElement(Legend, {
-                        verticalAlign: 'top',
-                        height: 36
-                    }),
-                    React.createElement(ReferenceLine, { 
-                        y: 0, 
-                        stroke: '#666', 
-                        strokeDasharray: "3 3",
-                        label: { value: '$0', position: 'right' }
-                    }),
-                    displayMode === 'independent'
-                        ? categories.map((category, index) => {
-                            console.log(`Creating bar for category ${category.name}`);
-                            return React.createElement(Bar, {
-                                key: category.id,
-                                dataKey: `values.${category.id}`,
-                                name: category.name,
-                                fill: `hsl(${(index * 137.5) % 360}, 70%, 50%)`,
-                                onMouseEnter: (e) => {
-                                    console.log(`Bar data for ${category.name}:`, 
-                                        data.map(d => ({
-                                            date: d.date, 
-                                            value: d.values[category.id]
-                                        }))
-                                    );
-                                }
-                            })
-                        })
-                        : React.createElement(Bar, {
-                            dataKey: "combinedValue",
-                            name: "Combined",
-                            fill: "#8884d8"
-                        }),
-                    showAverage && React.createElement(ReferenceLine, {
-                        y: average,
-                        stroke: "#666",
-                        strokeDasharray: "3 3",
-                        label: { 
-                            value: `Avg: $${average.toFixed(2)}`, 
-                            position: 'right' 
-                        }
-                    })
-                );
-            } catch (error) {
-                console.error('Error rendering chart:', error);
-                return React.createElement('div', {
-                    style: {
-                        padding: '20px',
-                        backgroundColor: '#ffebee',
-                        border: '1px solid #ffcdd2',
-                        borderRadius: '4px'
-                    }
-                }, `Error rendering chart: ${error.message}`);
-            }
-        }
-        '''
 
     def _setup_ui(self):
         """Initialize the user interface components"""
@@ -353,7 +146,7 @@ class CategoryPlotView(QWidget):
         self.plot_widget.setMinimumWidth(800)
         right_layout.addWidget(self.plot_widget)
         
-        main_layout.addWidget(right_panel, stretch=2)
+        main_layout.addWidget(right_panel, stretch=3)
         
         # Update average line visibility based on plot type
         self._update_average_visibility()
@@ -373,16 +166,21 @@ class CategoryPlotView(QWidget):
         self.end_date.dateChanged.connect(self._update_plot)
 
     def _process_data(self):
-        """Process transaction data for plotting"""
+        """
+        Process transaction data for plotting.
+        Handles both regular and cumulative plotting modes.
+        
+        Returns:
+            tuple: (processed_data, selected_categories) where:
+                - processed_data is a list of dictionaries containing the plot data points
+                - selected_categories is a list of Category objects being plotted
+        """
         selected_categories = self._get_selected_categories()
         if not selected_categories:
             return None, []
 
         start_date = self.start_date.date().toPython()
         end_date = self.end_date.date().toPython()
-        
-        # Debug print
-        print(f"Selected categories: {[cat.name for cat in selected_categories]}")
         
         # Get all transactions for selected categories
         all_transactions = []
@@ -404,16 +202,11 @@ class CategoryPlotView(QWidget):
             all_transactions.extend(filtered_transactions)
         
         if not all_transactions:
-            print("No transactions found")
             return None, []
 
-        # Convert to DataFrame
+        # Convert to DataFrame for easier processing
         df = pd.DataFrame(all_transactions)
         
-        # Debug print
-        print(f"DataFrame shape: {df.shape}")
-        print("Unique categories in data:", df['category_id'].unique())
-
         # Group by time period
         grouping = self.group_combo.currentText()
         if grouping == "Days":
@@ -433,16 +226,19 @@ class CategoryPlotView(QWidget):
                 f"FY{df['date'].dt.year}"
             )
 
+        # Sort by period to ensure correct cumulative calculations
+        df = df.sort_values('period')
+
         # Determine value type and adjust sign for expenses
         if self.deposits_radio.isChecked():
             value_col = 'deposit'
         elif self.withdrawals_radio.isChecked():
             value_col = 'withdrawal'
-            df[value_col] = -df[value_col]
+            df[value_col] = -df[value_col]  # Make withdrawals negative
         else:
             value_col = 'net'
 
-        # Group data
+        # Process data based on display mode
         if self.independent_radio.isChecked():
             # Group by period and category
             grouped = df.groupby(['period', 'category_id'])[value_col].sum().reset_index()
@@ -451,52 +247,114 @@ class CategoryPlotView(QWidget):
             periods = sorted(df['period'].unique())
             result_data = []
             
-            for period in periods:
-                data_point = {'date': str(period), 'values': {}}
-                period_data = grouped[grouped['period'] == period]
+            if self.line_radio.isChecked():
+                # For cumulative line plot, maintain running totals per category
+                running_totals = {cat.id: 0.0 for cat in selected_categories}
                 
-                # Initialize all categories to 0
-                for cat in selected_categories:
-                    cat_value = period_data[period_data['category_id'] == cat.id][value_col].sum()
-                    data_point['values'][cat.id] = float(cat_value)
-                
-                result_data.append(data_point)
-                
-            # Debug print
-            print("Sample of result_data:", result_data[0] if result_data else "No data")
-                
-        else:
-            grouped = df.groupby('period')[value_col].sum().reset_index()
-            result_data = [
-                {
-                    'date': str(period),
-                    'combinedValue': float(value)
-                }
-                for period, value in zip(grouped['period'], grouped[value_col])
-            ]
-
-        # Handle cumulative sum for line plots
-        if self.line_radio.isChecked():
-            if self.independent_radio.isChecked():
-                for cat in selected_categories:
-                    running_total = 0
-                    for data_point in result_data:
-                        running_total += data_point['values'][cat.id]
-                        data_point['values'][cat.id] = running_total
+                for period in periods:
+                    data_point = {'date': str(period), 'values': {}}
+                    period_data = grouped[grouped['period'] == period]
+                    
+                    for cat in selected_categories:
+                        # Get value for this period
+                        cat_value = period_data[period_data['category_id'] == cat.id][value_col].sum()
+                        # Update running total
+                        running_totals[cat.id] += cat_value
+                        # Store cumulative value
+                        data_point['values'][cat.id] = running_totals[cat.id]
+                    
+                    result_data.append(data_point)
             else:
-                running_total = 0
-                for data_point in result_data:
-                    running_total += data_point['combinedValue']
-                    data_point['combinedValue'] = running_total
+                # Regular column chart - no cumulative totals
+                for period in periods:
+                    data_point = {'date': str(period), 'values': {}}
+                    period_data = grouped[grouped['period'] == period]
+                    
+                    for cat in selected_categories:
+                        cat_value = period_data[period_data['category_id'] == cat.id][value_col].sum()
+                        data_point['values'][cat.id] = float(cat_value)
+                    
+                    result_data.append(data_point)
+        else:
+            # Combined view - sum all categories together
+            grouped = df.groupby('period')[value_col].sum().reset_index()
+            
+            if self.line_radio.isChecked():
+                # For cumulative line plot
+                running_total = 0.0
+                result_data = []
+                
+                for _, row in grouped.iterrows():
+                    running_total += float(row[value_col])
+                    result_data.append({
+                        'date': str(row['period']),
+                        'combinedValue': running_total
+                    })
+            else:
+                # Regular column chart
+                result_data = [
+                    {
+                        'date': str(period),
+                        'combinedValue': float(value)
+                    }
+                    for period, value in zip(grouped['period'], grouped[value_col])
+                ]
 
         return result_data, selected_categories
+
+    @property
+    def category_plot_component(self) -> str:
+        """
+        Load and return the React component code from the AnalysisPlot.js file.
+        
+        Returns:
+            str: The React component code, or a basic error component if file not found
+        """
+        try:
+            js_path = Path(__file__).parent / 'analysis_plot.js'
+            with js_path.open('r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error loading AnalysisPlot.js: {e}")
+            return '''
+                () => React.createElement('div', {
+                    style: {
+                        padding: '20px',
+                        backgroundColor: '#ffebee',
+                        border: '1px solid #ffcdd2',
+                        borderRadius: '4px'
+                    }
+                }, 'Error: Failed to load analysis plot component');
+            '''
+
+    def _load_html_template(self) -> str:
+        """
+        Load the HTML template for the analysis plot.
+        
+        Returns:
+            str: The HTML template content, or a basic error template if file not found
+        """
+        try:
+            template_path = Path(__file__).parent / 'analysis_plot_template.html'
+            with template_path.open('r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error loading analysis plot template: {e}")
+            return '<html><body>Error loading plot template</body></html>'
 
     def _update_plot(self):
         """Update the plot with current data and settings"""
         data, categories = self._process_data()
         if not data:
-            # Clear the plot if no data
-            self.plot_widget.setHtml("<div>No data to display</div>")
+            # Show a message when there's no data
+            html_content = """
+                <html><body>
+                    <div style="text-align: center; padding: 20px;">
+                        No data to display. Please select categories and ensure transactions exist.
+                    </div>
+                </body></html>
+            """
+            self.plot_widget.setHtml(html_content)
             return
 
         # Prepare plot configuration
@@ -514,84 +372,24 @@ class CategoryPlotView(QWidget):
             ]
         }
 
-        # Create HTML with the React component
-        html_content = f"""
-        <!DOCTYPE html>
-        <html>
-            <head>
-                <meta charset="UTF-8">
-                <script crossorigin src="https://unpkg.com/react@17/umd/react.development.js"></script>
-                <script crossorigin src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
-                <script crossorigin src="https://unpkg.com/prop-types@15.7.2/prop-types.js"></script>
-                <script crossorigin src="https://unpkg.com/recharts@2.1.12/umd/Recharts.js"></script>
-                <style>
-                    body {{
-                        margin: 0;
-                        padding: 0;
-                        overflow: hidden;
-                    }}
-                    #root {{ 
-                        width: 100vw;
-                        height: 100vh;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                        background-color: white;
-                    }}
-                    .chart-container {{
-                        padding: 20px;
-                        border-radius: 8px;
-                    }}
-                </style>
-            </head>
-            <body>
-                <div id="root">
-                    <div class="chart-container">
-                        Loading chart...
-                    </div>
-                </div>
-                <script>
-                    function initChart() {{
-                        if (!window.React || !window.ReactDOM || !window.Recharts) {{
-                            console.log('Waiting for libraries...', {{
-                                React: !!window.React,
-                                ReactDOM: !!window.ReactDOM,
-                                Recharts: !!window.Recharts
-                            }});
-                            setTimeout(initChart, 100);
-                            return;
-                        }}
+        # Load template and component code
+        template = self._load_html_template()
+        component = self.category_plot_component
 
-                        try {{
-                            console.log('Libraries loaded, initializing chart...');
-                            const plotConfig = {json.dumps(plot_config)};
-                            const CategoryPlot = {self.category_plot_component};
-                            
-                            ReactDOM.render(
-                                React.createElement(CategoryPlot, plotConfig),
-                                document.getElementById('root')
-                            );
-                            console.log('Chart rendered successfully');
-                        }} catch (error) {{
-                            console.error('Error rendering chart:', error);
-                            document.getElementById('root').innerHTML = `
-                                <div style="color: red; padding: 20px;">
-                                    Error rendering chart: ${{error.message}}
-                                </div>
-                            `;
-                        }}
-                    }}
+        # Create the complete HTML content
+        html_content = template.replace(
+            "{plot_config}",
+            json.dumps(plot_config, default=str)
+        ).replace(
+            "{analysis_plot}",
+            component
+        )
 
-                    window.onload = initChart;
-                </script>
-            </body>
-        </html>
-        """
-        
+        # Set the HTML content in the web view
         self.plot_widget.setHtml(html_content)
-        
+
         # Debug output
-        print("Updated plot with data:", json.dumps(plot_config, indent=2))
+        print("Updated plot with configuration:", json.dumps(plot_config, indent=2, default=str))
 
     def _update_average_visibility(self):
         """Update the visibility of average line options based on plot type"""

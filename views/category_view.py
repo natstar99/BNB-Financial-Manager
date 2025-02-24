@@ -662,13 +662,61 @@ class CategoryView(QWidget):
         self.categories_selected.emit(selected_categories)
 
     def _get_selected_transaction_categories(self) -> List[Category]:
-        """Get list of selected transaction categories"""
+        """
+        Get list of selected transaction categories, including all transaction 
+        categories under any selected groups
+        
+        Returns:
+            List[Category]: List of all applicable transaction categories
+        """
         selected_categories = []
+        selected_indices = []  # Store indices for highlighting
+        
+        def collect_transaction_categories(index, is_from_group=False):
+            """
+            Recursively collect transaction categories from an index
+            
+            Args:
+                index: The model index to check
+                is_from_group: Whether this is being collected from a group selection
+            """
+            item = index.internalPointer()['item']
+            
+            # If it's a transaction category, add it
+            if item.category_type == CategoryType.TRANSACTION:
+                if item not in selected_categories:  # Avoid duplicates
+                    selected_categories.append(item)
+                if is_from_group:
+                    selected_indices.append(index)
+            # If it's a group, process all children
+            elif item.category_type in (CategoryType.ROOT, CategoryType.GROUP):
+                for row in range(self.tree_model.rowCount(index)):
+                    child_index = self.tree_model.index(row, 0, index)
+                    collect_transaction_categories(child_index, True)
+        
+        # Process all selected items
         for index in self.tree_view.selectedIndexes():
             if index.column() == 0:  # Only process first column
-                item = index.internalPointer()['item']
-                if item.category_type == CategoryType.TRANSACTION:
-                    selected_categories.append(item)
+                collect_transaction_categories(index)
+        
+        # Highlight auto-selected categories
+        if selected_indices:
+            from PySide6.QtCore import QItemSelection, QItemSelectionModel
+            selection = QItemSelection()
+            for index in selected_indices:
+                # Create a selection range for the entire row
+                left = self.tree_model.index(index.row(), 0, index.parent())
+                right = self.tree_model.index(index.row(), 
+                                            self.tree_model.columnCount() - 1, 
+                                            index.parent())
+                selection.select(left, right)
+            
+            # Merge with existing selection
+            self.tree_view.selectionModel().select(
+                selection,
+                QItemSelectionModel.Select | QItemSelectionModel.Rows
+            )
+        
         return selected_categories
 
     def get_tree_view(self) -> QTreeView:
