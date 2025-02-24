@@ -14,7 +14,7 @@ from views.multi_import_dialog import MultiFileImportDialog
 from models.bank_account_model import BankAccountModel
 from views.account_view import AccountView
 from models.bank_account_reconciliation import BankAccountReconciliation
-from views.category_plot_view import CategoryPlotDialog
+from views.category_plot_view import CategoryPlotView
 
 class MainWindow(QMainWindow):
     """Main application window that contains all views"""
@@ -82,26 +82,28 @@ class MainWindow(QMainWindow):
         view_menu = menubar.addMenu("&View")
         
         # Toggle transaction view
-        toggle_trans_action = QAction("&Transactions", self)
-        toggle_trans_action.setCheckable(True)
-        toggle_trans_action.setChecked(True)
-        toggle_trans_action.triggered.connect(
-            lambda checked: self.transaction_view.setVisible(checked))
-        view_menu.addAction(toggle_trans_action)
+        self.toggle_trans_action = QAction("&Transactions", self)
+        self.toggle_trans_action.setCheckable(True)
+        self.toggle_trans_action.setChecked(True)
+        self.toggle_trans_action.triggered.connect(
+            lambda checked: self._toggle_view('transactions', checked))
+        view_menu.addAction(self.toggle_trans_action)
         
         # Toggle category view
-        toggle_cat_action = QAction("&Categories", self)
-        toggle_cat_action.setCheckable(True)
-        toggle_cat_action.setChecked(True)
-        toggle_cat_action.triggered.connect(
-            lambda checked: self.category_view.setVisible(checked))
-        view_menu.addAction(toggle_cat_action)
-
-        # Category Plot action
-        plot_action = QAction("Category &Plot", self)
-        plot_action.setStatusTip("View category analysis plots")
-        plot_action.triggered.connect(self._show_category_plot)
-        view_menu.addAction(plot_action)
+        self.toggle_cat_action = QAction("&Categories", self)
+        self.toggle_cat_action.setCheckable(True)
+        self.toggle_cat_action.setChecked(True)
+        self.toggle_cat_action.triggered.connect(
+            lambda checked: self._toggle_view('categories', checked))
+        view_menu.addAction(self.toggle_cat_action)
+        
+        # Toggle analysis view
+        self.toggle_analysis_action = QAction("&Analysis", self)
+        self.toggle_analysis_action.setCheckable(True)
+        self.toggle_analysis_action.setChecked(False)  # Initially hidden
+        self.toggle_analysis_action.triggered.connect(
+            lambda checked: self._toggle_view('analysis', checked))
+        view_menu.addAction(self.toggle_analysis_action)
         
         # Tools Menu
         tools_menu = menubar.addMenu("&Tools")
@@ -119,6 +121,57 @@ class MainWindow(QMainWindow):
         about_action = QAction("&About", self)
         about_action.triggered.connect(self._show_about)
         help_menu.addAction(about_action)
+
+    def _toggle_view(self, view_type: str, visible: bool):
+        """
+        Toggle the visibility of a specific view
+        
+        Args:
+            view_type: Type of view to toggle ('transactions', 'categories', 'analysis')
+            visible: Whether the view should be visible
+        """
+        if view_type == 'transactions':
+            self.transaction_view.setVisible(visible)
+            # Ensure at least one view is visible
+            if not visible and not (self.category_view.isVisible() or self.analysis_view.isVisible()):
+                self.toggle_cat_action.setChecked(True)
+                self.category_view.setVisible(True)
+        
+        elif view_type == 'categories':
+            self.category_view.setVisible(visible)
+            # Ensure at least one view is visible
+            if not visible and not (self.transaction_view.isVisible() or self.analysis_view.isVisible()):
+                self.toggle_trans_action.setChecked(True)
+                self.transaction_view.setVisible(True)
+        
+        elif view_type == 'analysis':
+            self.analysis_view.setVisible(visible)
+            # Ensure at least one view is visible
+            if not visible and not (self.transaction_view.isVisible() or self.category_view.isVisible()):
+                self.toggle_trans_action.setChecked(True)
+                self.transaction_view.setVisible(True)
+        
+        # Adjust layout stretches based on visible widgets
+        self._adjust_layout_stretches()
+
+    def _adjust_layout_stretches(self):
+        """Adjust layout stretches based on visible widgets"""
+        visible_count = sum([
+            self.transaction_view.isVisible(),
+            self.category_view.isVisible(),
+            self.analysis_view.isVisible()
+        ])
+        
+        if visible_count == 0:
+            return  # Should never happen due to _toggle_view logic
+        
+        # Set stretches based on visible widgets
+        self.main_layout.setStretch(self.main_layout.indexOf(self.transaction_view),
+                                2 if self.transaction_view.isVisible() else 0)
+        self.main_layout.setStretch(self.main_layout.indexOf(self.category_view),
+                                1 if self.category_view.isVisible() else 0)
+        self.main_layout.setStretch(self.main_layout.indexOf(self.analysis_view),
+                                1 if self.analysis_view.isVisible() else 0)
     
     def _create_tool_bar(self):
         """Create the main toolbar"""
@@ -150,31 +203,32 @@ class MainWindow(QMainWindow):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
         
-        # Create a tab widget for the right side
-        right_tabs = QTabWidget()
-        
-        # Create and add the category view with both controllers
-        self.category_view = CategoryView(
-            self.category_controller,
-            self.transaction_controller
-        )
-        right_tabs.addTab(self.category_view, "Categories")
-        
-        # Create and add the account view
-        self.account_view = AccountView(self.bank_account_model)
-        right_tabs.addTab(self.account_view, "Accounts")
-        
         # Create main layout
-        layout = QHBoxLayout(main_widget)
+        self.main_layout = QHBoxLayout(main_widget)
         
-        # Add views to layout
+        # Create and add the transaction view
         self.transaction_view = TransactionView(
             self.transaction_controller, 
             self.category_controller,
             self.bank_account_model
         )
-        layout.addWidget(self.transaction_view, stretch=2)
-        layout.addWidget(right_tabs, stretch=1)
+        self.main_layout.addWidget(self.transaction_view, stretch=2)
+        
+        # Create category view
+        self.category_view = CategoryView(
+            self.category_controller,
+            self.transaction_controller
+        )
+        self.main_layout.addWidget(self.category_view, stretch=1)
+        
+        # Create analysis view (initially hidden)
+        self.analysis_view = CategoryPlotView(
+            self.category_controller,
+            self.transaction_controller,
+            category_view=self.category_view
+        )
+        self.main_layout.addWidget(self.analysis_view, stretch=1)
+        self.analysis_view.hide()
     
     @Slot()
     def _import_qif(self):
@@ -269,12 +323,3 @@ class MainWindow(QMainWindow):
             "Financial Management Application\n\n"
             "A tool for managing personal and business finances."
         )
-
-    def _show_category_plot(self):
-        """Show the category plot dialog"""
-        dialog = CategoryPlotDialog(
-            self.category_controller,
-            self.transaction_controller,
-            self
-        )
-        dialog.exec_()

@@ -5,12 +5,12 @@ from PySide6.QtWidgets import (
     QPushButton, QHBoxLayout, QMenu, QMessageBox, QDialog
 )
 from typing import List, Set
-from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex, Slot
+from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex, Slot, Signal
 from controllers.category_controller import CategoryController
 from controllers.transaction_controller import TransactionController
 from views.add_category_dialog import AddCategoryDialog
 from views.bank_account_dialog import AddBankAccountDialog
-from models.category_model import CategoryType
+from models.category_model import CategoryType, Category
 from views.category_transactions_dialog import CategoryTransactionsDialog
 
 class CategoryTreeModel(QAbstractItemModel):
@@ -154,6 +154,10 @@ class CategoryTreeModel(QAbstractItemModel):
 
 class CategoryView(QWidget):
     """Widget for displaying and managing categories"""
+
+    # Add a signal for selected categories
+    categories_selected = Signal(list)  # Will emit list of selected categories
+
     def __init__(self, category_controller: CategoryController, 
                  transaction_controller: TransactionController):
         super().__init__()
@@ -221,6 +225,12 @@ class CategoryView(QWidget):
         self.tree_view.setAlternatingRowColors(True)
         self.tree_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.tree_view.expandAll()  # Start with all nodes expanded
+
+        # Configure tree view for multi-selection
+        self.tree_view.setSelectionMode(QTreeView.ExtendedSelection)
+        
+        # Connect selection changed signal
+        self.tree_view.selectionModel().selectionChanged.connect(self._handle_tree_selection_changed)
         
         # Configure header
         header = self.tree_view.header()
@@ -645,3 +655,22 @@ class CategoryView(QWidget):
             self
         )
         dialog.exec_()
+
+    def _handle_tree_selection_changed(self):
+        """Handle changes in tree selection"""
+        selected_categories = self._get_selected_transaction_categories()
+        self.categories_selected.emit(selected_categories)
+
+    def _get_selected_transaction_categories(self) -> List[Category]:
+        """Get list of selected transaction categories"""
+        selected_categories = []
+        for index in self.tree_view.selectedIndexes():
+            if index.column() == 0:  # Only process first column
+                item = index.internalPointer()['item']
+                if item.category_type == CategoryType.TRANSACTION:
+                    selected_categories.append(item)
+        return selected_categories
+
+    def get_tree_view(self) -> QTreeView:
+        """Get the category tree view widget"""
+        return self.tree_view

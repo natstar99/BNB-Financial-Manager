@@ -12,33 +12,42 @@ from datetime import datetime, timedelta
 from .category_view import CategoryTreeModel
 import json
 import numpy as np
+from models.category_model import Category, CategoryType
+from typing import List
+
 
 class CategoryPlotView(QWidget):
     """Widget for plotting category-based financial analysis"""
     
-    def __init__(self, category_controller, transaction_controller):
+    def __init__(self, category_controller, transaction_controller, category_view=None):
         """
         Initialize the category plot view
         
         Args:
             category_controller: Controller for managing categories
             transaction_controller: Controller for managing transactions
+            category_view: Optional CategoryView instance to use for selection
         """
         super().__init__()
         self.category_controller = category_controller
         self.transaction_controller = transaction_controller
+        self.category_view = category_view
         self._setup_ui()
         self._setup_connections()
 
     @property
     def category_plot_component(self):
-        """Get the JavaScript code for the React component"""
+        """Get the JavaScript code for the React component for category plotting"""
         return '''
         ({data, plotType, valueType, displayMode, showAverage, categories}) => {
             console.log('Component rendering with props:', {
-                plotType, valueType, displayMode, showAverage,
+                plotType, 
+                valueType, 
+                displayMode, 
+                showAverage,
                 categoriesCount: categories.length,
-                dataPoints: data.length
+                dataPoints: data.length,
+                sampleData: data[0]
             });
 
             if (!window.Recharts) {
@@ -59,14 +68,43 @@ class CategoryPlotView(QWidget):
                 CartesianGrid, Tooltip, Legend, ReferenceLine
             } = window.Recharts;
 
-            console.log('Creating chart with type:', plotType);
-            
-            const width = 800;
-            const height = 400;
-            
+            // Calculate domain for Y axis to ensure 0 is centered
+            const getAllValues = () => {
+                const values = [];
+                data.forEach(item => {
+                    if (displayMode === 'independent') {
+                        Object.values(item.values || {}).forEach(v => values.push(v));
+                    } else {
+                        values.push(item.combinedValue);
+                    }
+                });
+                return values;
+            };
+
+            const values = getAllValues();
+            console.log('All values:', values);
+            const maxAbs = Math.max(Math.abs(Math.min(...values)), Math.abs(Math.max(...values)));
+            const domain = [-maxAbs, maxAbs];
+
             // Format tooltip values
             const formatValue = (value) => `$${Number(value).toFixed(2)}`;
             
+            // Common props for both chart types
+            const commonProps = {
+                width: 800,
+                height: 400,
+                data,
+                margin: { top: 20, right: 30, left: 50, bottom: 20 }
+            };
+
+            // Common axis props
+            const commonAxisProps = {
+                YAxis: {
+                    domain: domain,
+                    tickFormatter: (value) => `$${value.toLocaleString()}`
+                }
+            };
+
             // Calculate average if needed
             const average = showAverage && plotType === 'column' ? 
                 data.reduce((sum, item) => {
@@ -77,58 +115,105 @@ class CategoryPlotView(QWidget):
                 }, 0) / data.length : null;
 
             console.log('Rendering chart with:', {
-                width,
-                height,
+                width: commonProps.width,
+                height: commonProps.height,
                 dataLength: data.length,
-                hasAverage: Boolean(average)
+                hasAverage: Boolean(average),
+                domain
             });
             
             try {
                 if (plotType === 'line') {
                     return React.createElement(LineChart, 
-                        { width, height, data },
+                        {...commonProps},
                         React.createElement(CartesianGrid, { strokeDasharray: "3 3" }),
                         React.createElement(XAxis, { dataKey: "date" }),
-                        React.createElement(YAxis),
-                        React.createElement(Tooltip, { formatter: formatValue }),
-                        React.createElement(Legend),
+                        React.createElement(YAxis, commonAxisProps.YAxis),
+                        React.createElement(Tooltip, { 
+                            formatter: formatValue,
+                            labelFormatter: (label) => `Period: ${label}`
+                        }),
+                        React.createElement(Legend, {
+                            verticalAlign: 'top',
+                            height: 36
+                        }),
+                        React.createElement(ReferenceLine, { 
+                            y: 0, 
+                            stroke: '#666', 
+                            strokeDasharray: "3 3",
+                            label: { value: '$0', position: 'right' }
+                        }),
                         displayMode === 'independent' 
-                            ? categories.map((category, index) => 
-                                React.createElement(Line, {
+                            ? categories.map((category, index) => {
+                                console.log(`Creating line for category ${category.name}`);
+                                return React.createElement(Line, {
                                     key: category.id,
                                     type: "monotone",
                                     dataKey: `values.${category.id}`,
                                     name: category.name,
                                     stroke: `hsl(${(index * 137.5) % 360}, 70%, 50%)`,
-                                    dot: false
+                                    strokeWidth: 2,
+                                    dot: false,
+                                    activeDot: { r: 4 },
+                                    onMouseEnter: (e) => {
+                                        console.log(`Line data for ${category.name}:`, 
+                                            data.map(d => ({
+                                                date: d.date, 
+                                                value: d.values[category.id]
+                                            }))
+                                        );
+                                    }
                                 })
-                            )
+                            })
                             : React.createElement(Line, {
                                 type: "monotone",
                                 dataKey: "combinedValue",
                                 name: "Combined",
                                 stroke: "#8884d8",
-                                dot: false
+                                strokeWidth: 2,
+                                dot: false,
+                                activeDot: { r: 4 }
                             })
                     );
                 }
                 
                 return React.createElement(BarChart,
-                    { width, height, data },
+                    {...commonProps},
                     React.createElement(CartesianGrid, { strokeDasharray: "3 3" }),
                     React.createElement(XAxis, { dataKey: "date" }),
-                    React.createElement(YAxis),
-                    React.createElement(Tooltip, { formatter: formatValue }),
-                    React.createElement(Legend),
+                    React.createElement(YAxis, commonAxisProps.YAxis),
+                    React.createElement(Tooltip, { 
+                        formatter: formatValue,
+                        labelFormatter: (label) => `Period: ${label}`
+                    }),
+                    React.createElement(Legend, {
+                        verticalAlign: 'top',
+                        height: 36
+                    }),
+                    React.createElement(ReferenceLine, { 
+                        y: 0, 
+                        stroke: '#666', 
+                        strokeDasharray: "3 3",
+                        label: { value: '$0', position: 'right' }
+                    }),
                     displayMode === 'independent'
-                        ? categories.map((category, index) =>
-                            React.createElement(Bar, {
+                        ? categories.map((category, index) => {
+                            console.log(`Creating bar for category ${category.name}`);
+                            return React.createElement(Bar, {
                                 key: category.id,
                                 dataKey: `values.${category.id}`,
                                 name: category.name,
-                                fill: `hsl(${(index * 137.5) % 360}, 70%, 50%)`
+                                fill: `hsl(${(index * 137.5) % 360}, 70%, 50%)`,
+                                onMouseEnter: (e) => {
+                                    console.log(`Bar data for ${category.name}:`, 
+                                        data.map(d => ({
+                                            date: d.date, 
+                                            value: d.values[category.id]
+                                        }))
+                                    );
+                                }
                             })
-                        )
+                        })
                         : React.createElement(Bar, {
                             dataKey: "combinedValue",
                             name: "Combined",
@@ -138,7 +223,10 @@ class CategoryPlotView(QWidget):
                         y: average,
                         stroke: "#666",
                         strokeDasharray: "3 3",
-                        label: "Average"
+                        label: { 
+                            value: `Avg: $${average.toFixed(2)}`, 
+                            position: 'right' 
+                        }
                     })
                 );
             } catch (error) {
@@ -163,13 +251,9 @@ class CategoryPlotView(QWidget):
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         
-        # Category selection tree
-        self.category_tree = QTreeView()
-        self.tree_model = CategoryTreeModel(self.category_controller)
-        self.category_tree.setModel(self.tree_model)
-        self.category_tree.setSelectionMode(QTreeView.ExtendedSelection)
-        left_layout.addWidget(QLabel("Select Categories:"))
-        left_layout.addWidget(self.category_tree)
+        # Use the main category view if provided, otherwise show message
+        if self.category_view:
+            left_layout.addWidget(QLabel("Select categories in the Categories tab"))
         
         # Time grouping
         group_layout = QVBoxLayout()
@@ -277,8 +361,9 @@ class CategoryPlotView(QWidget):
     def _setup_connections(self):
         """Set up signal/slot connections for UI interactions"""
         # Connect all controls to trigger plot updates
-        self.category_tree.selectionModel().selectionChanged.connect(
-            self._update_plot)
+        """Set up signal/slot connections"""
+        if self.category_view:
+            self.category_view.categories_selected.connect(self._handle_category_selection)
         self.group_combo.currentTextChanged.connect(self._update_plot)
         self.plot_type_group.buttonClicked.connect(self._handle_plot_type_change)
         self.value_type_group.buttonClicked.connect(self._update_plot)
@@ -296,32 +381,38 @@ class CategoryPlotView(QWidget):
         start_date = self.start_date.date().toPython()
         end_date = self.end_date.date().toPython()
         
+        # Debug print
+        print(f"Selected categories: {[cat.name for cat in selected_categories]}")
+        
         # Get all transactions for selected categories
-        transactions = []
+        all_transactions = []
         for category in selected_categories:
             category_transactions = self.transaction_controller.get_transactions()
             # Filter by category and date range
             filtered_transactions = [
-                t for t in category_transactions 
+                {
+                    'date': t.date,
+                    'category_id': category.id,
+                    'deposit': float(t.deposit),
+                    'withdrawal': float(t.withdrawal),
+                    'net': float(t.deposit - t.withdrawal)
+                }
+                for t in category_transactions 
                 if t.category_id == category.id 
                 and start_date <= t.date.date() <= end_date
             ]
-            transactions.extend(filtered_transactions)
+            all_transactions.extend(filtered_transactions)
         
-        if not transactions:
+        if not all_transactions:
+            print("No transactions found")
             return None, []
 
-        # Convert to DataFrame for easier processing
-        df = pd.DataFrame([
-            {
-                'date': t.date,
-                'category_id': t.category_id,
-                'deposit': float(t.deposit),
-                'withdrawal': float(t.withdrawal),
-                'net': float(t.deposit - t.withdrawal)
-            }
-            for t in transactions
-        ])
+        # Convert to DataFrame
+        df = pd.DataFrame(all_transactions)
+        
+        # Debug print
+        print(f"DataFrame shape: {df.shape}")
+        print("Unique categories in data:", df['category_id'].unique())
 
         # Group by time period
         grouping = self.group_combo.currentText()
@@ -342,43 +433,61 @@ class CategoryPlotView(QWidget):
                 f"FY{df['date'].dt.year}"
             )
 
-        # Determine value type
+        # Determine value type and adjust sign for expenses
         if self.deposits_radio.isChecked():
             value_col = 'deposit'
         elif self.withdrawals_radio.isChecked():
             value_col = 'withdrawal'
+            df[value_col] = -df[value_col]
         else:
             value_col = 'net'
 
         # Group data
         if self.independent_radio.isChecked():
+            # Group by period and category
             grouped = df.groupby(['period', 'category_id'])[value_col].sum().reset_index()
-            # Pivot to get categories as columns
-            plot_data = grouped.pivot(
-                index='period', 
-                columns='category_id', 
-                values=value_col
-            ).fillna(0)
+            
+            # Create periods for all category combinations
+            periods = sorted(df['period'].unique())
+            result_data = []
+            
+            for period in periods:
+                data_point = {'date': str(period), 'values': {}}
+                period_data = grouped[grouped['period'] == period]
+                
+                # Initialize all categories to 0
+                for cat in selected_categories:
+                    cat_value = period_data[period_data['category_id'] == cat.id][value_col].sum()
+                    data_point['values'][cat.id] = float(cat_value)
+                
+                result_data.append(data_point)
+                
+            # Debug print
+            print("Sample of result_data:", result_data[0] if result_data else "No data")
+                
         else:
             grouped = df.groupby('period')[value_col].sum().reset_index()
-            plot_data = grouped.set_index('period')
+            result_data = [
+                {
+                    'date': str(period),
+                    'combinedValue': float(value)
+                }
+                for period, value in zip(grouped['period'], grouped[value_col])
+            ]
 
         # Handle cumulative sum for line plots
         if self.line_radio.isChecked():
-            plot_data = plot_data.cumsum()
-
-        # Convert to list of dicts for React
-        result_data = []
-        for period in plot_data.index:
-            row_data = {'date': str(period)}
             if self.independent_radio.isChecked():
-                row_data['values'] = {
-                    cat.id: float(plot_data.loc[period, cat.id])
-                    for cat in selected_categories
-                }
+                for cat in selected_categories:
+                    running_total = 0
+                    for data_point in result_data:
+                        running_total += data_point['values'][cat.id]
+                        data_point['values'][cat.id] = running_total
             else:
-                row_data['combinedValue'] = float(plot_data.loc[period, value_col])
-            result_data.append(row_data)
+                running_total = 0
+                for data_point in result_data:
+                    running_total += data_point['combinedValue']
+                    data_point['combinedValue'] = running_total
 
         return result_data, selected_categories
 
@@ -500,50 +609,12 @@ class CategoryPlotView(QWidget):
         self._update_average_visibility()
         self._update_plot()
 
-    def _get_selected_categories(self):
-        """
-        Get the currently selected categories from the tree view
-        
-        Returns:
-            list: List of selected Category objects that are transaction categories
-        """
-        selected_indexes = self.category_tree.selectionModel().selectedIndexes()
-        categories = []
-        
-        for index in selected_indexes:
-            if index.column() == 0:  # Only process first column to avoid duplicates
-                item = index.internalPointer()['item']
-                # Only include transaction categories (leaf nodes)
-                if item.category_type.value == 'transaction':
-                    categories.append(item)
-        
-        return categories
-    
-class CategoryPlotDialog(QDialog):
-    """Dialog for displaying the category plot"""
-    
-    def __init__(self, category_controller, transaction_controller, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Category Analysis Plot")
-        self.resize(1200, 800)
-        
-        # Create the plot view
-        self.plot_view = CategoryPlotView(
-            category_controller,
-            transaction_controller
-        )
-        
-        # Set up dialog layout
-        layout = QVBoxLayout(self)
-        layout.addWidget(self.plot_view)
-        
-        # Set dialog properties
-        self.setModal(True)
-        
-    def closeEvent(self, event):
-        """Handle dialog close event"""
-        # Clean up the web view
-        if hasattr(self.plot_view, 'plot_widget'):
-            self.plot_view.plot_widget.setHtml("")
-            self.plot_view.plot_widget.deleteLater()
-        super().closeEvent(event)
+    def _handle_category_selection(self, selected_categories: List[Category]):
+        """Handle changes in category selection from main category view"""
+        self._process_data()  # Update the plot with new selection
+
+    def _get_selected_categories(self) -> List[Category]:
+        """Get the currently selected categories"""
+        if self.category_view:
+            return self.category_view._get_selected_transaction_categories()
+        return []
