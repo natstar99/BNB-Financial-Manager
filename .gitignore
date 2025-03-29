@@ -2,7 +2,7 @@
 test/
 collect_code.py
 *.ipynb
-
+finance manager backups/
 
 # Hide virtual environment
 venv/

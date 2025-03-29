@@ -409,6 +409,10 @@ class TransactionView(QWidget):
         view_rules_button.clicked.connect(self._view_auto_rules)
         cat_button_layout.addWidget(view_rules_button)
         
+        run_all_rules_button = QPushButton("Run All Auto-Categorisation Rules")
+        run_all_rules_button.clicked.connect(self._run_all_rules)
+        cat_button_layout.addWidget(run_all_rules_button)
+
         # Add stretch to keep buttons centered
         cat_button_layout.addStretch()
         
@@ -630,3 +634,23 @@ class TransactionView(QWidget):
             self.table_model.refresh_data()
             # Restore scroll position after brief delay
             QTimer.singleShot(50, lambda: self._restore_scroll_position(scroll_pos))
+
+    def _run_all_rules(self):
+        """
+        Apply all auto-categorisation rules to transactions
+        and refresh the view to show the changes
+        """
+        # Store current scroll position
+        scroll_pos = self._store_scroll_position()
+        
+        # Apply all auto-categorisation rules
+        self.controller.apply_auto_categorisation_rules()
+        
+        # Refresh the transaction view
+        self.table_model.refresh_data()
+        
+        # Show status message
+        self.window().statusBar().showMessage("Applied all auto-categorisation rules", 3000)
+        
+        # Restore scroll position after brief delay
+        QTimer.singleShot(50, lambda: self._restore_scroll_position(scroll_pos))
