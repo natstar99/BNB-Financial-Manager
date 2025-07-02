@@ -1,11 +1,14 @@
-# File: controllers/transaction_controller.py
+"""
+Transaction Controller Module
 
-from PySide6.QtWidgets import QDialog
+This module provides the controller layer for transaction management operations,
+handling imports, categorisation, and auto-categorisation rules.
+"""
+
 from models.transaction_model import TransactionModel
-from views.duplicate_manager import DuplicateManagerDialog
 from utils.qif_parser import QIFParser
 from models.bank_account_model import BankAccountModel
-from typing import List, Set, Optional, Dict
+from typing import List, Optional, Dict
 from decimal import Decimal
 import datetime
 import os
@@ -77,7 +80,6 @@ class TransactionController:
             self.model.db.commit()
             return True
         except Exception as e:
-            print(f"Error categorising transaction: {e}")
             self.model.db.rollback()
             return False
         
@@ -95,7 +97,6 @@ class TransactionController:
             self.model.mark_transactions_matched(transaction_ids)
             return True
         except Exception as e:
-            print(f"Error matching transactions: {e}")
             return False
         
     def import_qif_files(self, import_files: List[Dict]) -> Dict[str, Dict[str, int]]:
@@ -145,14 +146,8 @@ class TransactionController:
                 new_transactions = [t for t in transactions 
                                 if (t.date, t.amount, t.payee, t.memo) not in duplicate_trans_ids]
 
-                # Show transaction manager dialog
-                dialog = DuplicateManagerDialog(new_transactions, duplicates)
-                if dialog.exec_() == QDialog.Accepted:
-                    selected = dialog.get_selected_transactions()
-                    transactions_to_import = [t for t in transactions if (
-                        t.date, t.amount, t.payee, t.memo) in selected]
-                else:
-                    continue  # Skip this file if user cancels
+                # Since GUI is removed, import all non-duplicate transactions
+                transactions_to_import = new_transactions
                 
                 # Import transactions
                 imported_count, duplicate_count = self.model.import_qif_transactions(
@@ -183,7 +178,6 @@ class TransactionController:
                 }
                 
             except Exception as e:
-                print(f"Error importing file {file_path}: {e}")
                 results[os.path.basename(file_path)] = {
                     'success': False,
                     'imported_count': 0,

@@ -1,4 +1,9 @@
-# File: models/bank_account_model.py
+"""
+Bank Account Model Module
+
+This module provides bank account management functionality including
+account creation, balance tracking, and balance validation.
+"""
 
 from dataclasses import dataclass
 from typing import Optional, List

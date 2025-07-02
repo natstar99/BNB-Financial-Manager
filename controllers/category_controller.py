@@ -1,4 +1,9 @@
-# File: controllers/category_controller.py
+"""
+Category Controller Module
+
+This module provides the controller layer for category management operations,
+acting as an interface between the view layer and the category model.
+"""
 
 from typing import List, Optional
 from models.category_model import CategoryModel, Category, CategoryType
@@ -38,7 +43,6 @@ class CategoryController:
                 is_bank_account=is_bank_account
             )
         except Exception as e:
-            print(f"Error in controller adding category: {e}")
             return False
         
     def add_bank_account(self, name: str, parent_id: str, **bank_data) -> bool:
@@ -81,7 +85,6 @@ class CategoryController:
             
         except Exception as e:
             self.model.db.execute("ROLLBACK")
-            print(f"Error adding bank account: {e}")
             return False
 
     def move_category(self, category_id: str, new_parent_id: str) -> bool:
@@ -90,7 +93,6 @@ class CategoryController:
             self.model.move_category(category_id, new_parent_id)
             return True
         except Exception as e:
-            print(f"Error moving category: {e}")
             return False
 
     def delete_category(self, category_id: str) -> bool:

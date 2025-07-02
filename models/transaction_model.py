@@ -1,11 +1,17 @@
-# File: models/transaction_model.py
+"""
+Transaction Model Module
+
+This module provides comprehensive transaction management functionality including
+transaction import, categorisation, duplicate detection, and auto-categorisation rules.
+"""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, List, Dict, Set
+from typing import Optional, List, Dict
 from enum import Enum
 from utils.qif_parser import QIFTransaction
+from utils.csv_parser import CSVTransaction
 from models.category_model import CategoryType
 
 class TaxType(Enum):
@@ -21,57 +27,99 @@ class Transaction:
     id: Optional[int]
     date: datetime
     account: str
+    account_name: Optional[str]
     description: str
     withdrawal: Decimal
     deposit: Decimal
     category_id: Optional[str]
+    category_name: Optional[str]
     tax_type: TaxType
     is_tax_deductible: bool
     is_hidden: bool
     is_matched: bool
     is_internal_transfer: bool = False
+    balance: Optional[Decimal] = None
+    transaction_id: Optional[str] = None
 
 class TransactionModel:
     """Model for managing financial transactions"""
     def __init__(self, db_manager):
         self.db = db_manager
+        self._ensure_transaction_table_updated()
     
-    def get_transactions(self, filter_type: str = "all") -> List[Transaction]:
+    def _ensure_transaction_table_updated(self):
+        """Ensure the transactions table has the new balance and transaction_id columns"""
+        try:
+            # Check if balance column exists
+            cursor = self.db.execute("PRAGMA table_info(transactions)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'balance' not in columns:
+                self.db.execute("ALTER TABLE transactions ADD COLUMN balance DECIMAL(15,2)")
+            
+            if 'transaction_id' not in columns:
+                self.db.execute("ALTER TABLE transactions ADD COLUMN transaction_id TEXT")
+            
+            self.db.commit()
+        except Exception as e:
+            pass  # Table already has required columns
+    
+    def get_transactions(self, filter_type: str = "all", limit: int = None, offset: int = 0, search: str = None) -> List[Transaction]:
         """
-        Retrieve transactions based on filter type
+        Retrieve transactions based on filter type with pagination and search
         
         Args:
             filter_type: Type of filter to apply (all, uncategorised, categorised, 
                         internal_transfers, hidden)
+            limit: Maximum number of transactions to return (None for all)
+            offset: Number of transactions to skip
+            search: Search term for description/account filtering
             
         Returns:
             List of filtered transactions
         """
         query = """
-            SELECT id, date, account, description, withdrawal, deposit, 
-                   category_id, tax_type, is_tax_deductible, is_hidden, 
-                   is_matched, is_internal_transfer
-            FROM transactions
+            SELECT t.id, t.date, t.account, ba.name as account_name, t.description, t.withdrawal, t.deposit, 
+                   t.category_id, c.name as category_name, t.tax_type, t.is_tax_deductible, 
+                   t.is_hidden, t.is_matched, t.is_internal_transfer, t.balance, t.transaction_id
+            FROM transactions t
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN bank_accounts ba ON t.account = ba.id
             WHERE 1=1
         """
         params = []
         
         if filter_type == "uncategorised":
-            query += """ AND category_id IS NULL 
-                        AND is_internal_transfer = 0 
-                        AND is_hidden = 0"""
+            query += """ AND t.category_id IS NULL 
+                        AND t.is_internal_transfer = 0 
+                        AND t.is_hidden = 0"""
         elif filter_type == "categorised":
-            query += """ AND category_id IS NOT NULL 
-                        AND is_internal_transfer = 0 
-                        AND is_hidden = 0"""
+            query += """ AND t.category_id IS NOT NULL 
+                        AND t.is_internal_transfer = 0 
+                        AND t.is_hidden = 0"""
         elif filter_type == "internal_transfers":
-            query += " AND is_internal_transfer = 1"
+            query += " AND t.is_internal_transfer = 1"
         elif filter_type == "hidden":
-            query += " AND is_hidden = 1"
-        elif filter_type != "all":
-            query += " AND is_hidden = 0"  # Default to showing non-hidden
+            query += " AND t.is_hidden = 1"
+        elif filter_type == "all":
+            # For 'all', don't add any additional filters - show everything
+            pass
+        else:
+            query += " AND t.is_hidden = 0"  # Default to showing non-hidden
         
-        query += " ORDER BY date DESC"
+        # Add search filtering at database level
+        if search and len(search.strip()) >= 2:
+            query += """ AND (t.description LIKE ? OR t.account LIKE ?)"""
+            search_param = f"%{search.strip()}%"
+            params.extend([search_param, search_param])
+        
+        query += " ORDER BY t.date DESC"
+        if limit is not None:
+            query += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+        elif offset > 0:
+            query += " OFFSET ?"
+            params.append(offset)
         
         cursor = self.db.execute(query, params)
         return [self._row_to_transaction(row) for row in cursor]
@@ -87,7 +135,7 @@ class TransactionModel:
             Transaction: A transaction object with all fields populated
         """
         try:
-            tax_type_value = row[7]  # Get the tax_type value from the row
+            tax_type_value = row[9]  # Get the tax_type value from the row (shifted due to account_name and category_name)
             # If tax_type is None/NULL, default to TaxType.NONE
             tax_type = TaxType(tax_type_value) if tax_type_value else TaxType.NONE
             
@@ -95,20 +143,22 @@ class TransactionModel:
                 id=row[0],
                 date=datetime.fromisoformat(row[1]),
                 account=row[2],
-                description=row[3],
-                withdrawal=Decimal(str(row[4])) if row[4] else Decimal('0'),
-                deposit=Decimal(str(row[5])) if row[5] else Decimal('0'),
-                category_id=row[6],
+                account_name=row[3],   # New account_name field
+                description=row[4],
+                withdrawal=Decimal(str(row[5])) if row[5] else Decimal('0'),
+                deposit=Decimal(str(row[6])) if row[6] else Decimal('0'),
+                category_id=row[7],
+                category_name=row[8],  # New category_name field
                 tax_type=tax_type,
-                is_tax_deductible=bool(row[8]),
-                is_hidden=bool(row[9]),
-                is_matched=bool(row[10]),
-                is_internal_transfer=bool(row[11])  # Get is_internal_transfer from row
+                is_tax_deductible=bool(row[10]),   # Shifted indices
+                is_hidden=bool(row[11]),
+                is_matched=bool(row[12]),
+                is_internal_transfer=bool(row[13]),  # Get is_internal_transfer from row
+                balance=Decimal(str(row[14])) if row[14] else None,
+                transaction_id=row[15] if row[15] else None
             )
         except Exception as e:
-            print(f"Error converting row to transaction: {e}")
-            print(f"Row data: {row}")
-            raise
+            raise ValueError(f"Error converting row to transaction: {e}")
     
     def is_duplicate_transaction(self, trans: QIFTransaction, window_days: int = 3) -> bool:
         """
@@ -184,14 +234,16 @@ class TransactionModel:
                 self.db.execute("""
                     INSERT INTO transactions (
                         date, account, description, withdrawal, deposit,
-                        is_matched, is_internal_transfer
-                    ) VALUES (?, ?, ?, ?, ?, 0, 0)
+                        is_matched, is_internal_transfer, balance, transaction_id
+                    ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
                 """, (
                     trans.date.isoformat(),
                     account_id,
                     trans.payee + (f" - {trans.memo}" if trans.memo else ''),
                     withdrawal,
-                    deposit
+                    deposit,
+                    None,  # QIF doesn't have balance info
+                    None   # QIF doesn't have transaction ID
                 ))
                 
                 imported_count += 1
@@ -205,8 +257,7 @@ class TransactionModel:
             
         except Exception as e:
             self.db.rollback()
-            print(f"Error importing transactions: {e}")
-            raise
+            raise ValueError(f"Error importing transactions: {e}")
     
     def is_duplicate_in_account(self, trans: QIFTransaction, account_id: str, window_days: int = 3) -> bool:
         """
@@ -245,8 +296,157 @@ class TransactionModel:
             return cursor.fetchone()[0] > 0
             
         except Exception as e:
-            print(f"Error checking for duplicate transaction: {e}")
             return False
+
+    def import_csv_transactions(self, transactions: List[CSVTransaction], account_id: str) -> tuple[int, int]:
+        """
+        Import transactions from CSV format into a specific bank account.
+        
+        Args:
+            transactions (List[CSVTransaction]): List of transactions to import
+            account_id (str): Bank account ID to import into
+            
+        Returns:
+            tuple[int, int]: (number of transactions imported, number of duplicates skipped)
+        """
+        try:
+            imported_count = 0
+            duplicate_count = 0
+            
+            # Verify this is a valid bank account
+            cursor = self.db.execute("""
+                SELECT 1 FROM categories 
+                WHERE id = ? 
+                AND is_bank_account = 1
+                AND category_type = ?
+            """, (account_id, CategoryType.TRANSACTION.value))
+            
+            if not cursor.fetchone():
+                raise ValueError(f"Invalid bank account ID: {account_id}")
+            
+            # Process each transaction
+            for trans in transactions:
+                # Skip if it's a duplicate
+                if self.is_duplicate_csv_in_account(trans, account_id):
+                    duplicate_count += 1
+                    continue
+                
+                # Process the transaction
+                withdrawal = float(abs(trans.amount)) if trans.amount < 0 else 0.0
+                deposit = float(trans.amount) if trans.amount > 0 else 0.0
+                
+                self.db.execute("""
+                    INSERT INTO transactions (
+                        date, account, description, withdrawal, deposit,
+                        is_matched, is_internal_transfer, balance, transaction_id
+                    ) VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
+                """, (
+                    trans.date.isoformat(),
+                    account_id,
+                    trans.payee,
+                    withdrawal,
+                    deposit,
+                    float(trans.balance) if trans.balance else None,
+                    trans.transaction_id
+                ))
+                
+                imported_count += 1
+            
+            self.db.commit()
+            
+            # After import, update account balance if we have balance data
+            if transactions:
+                self._update_account_balance_from_csv(transactions, account_id)
+            
+            # After import, detect any internal transfers
+            self.detect_internal_transfers()
+            
+            return imported_count, duplicate_count
+            
+        except Exception as e:
+            self.db.rollback()
+            raise ValueError(f"Error importing CSV transactions: {e}")
+    
+    def is_duplicate_csv_in_account(self, trans: CSVTransaction, account_id: str, window_days: int = 3) -> bool:
+        """
+        Check if a CSV transaction already exists in the specified bank account.
+        Uses transaction_id if available for more accurate duplicate detection.
+        
+        Args:
+            trans (CSVTransaction): The transaction to check
+            account_id (str): The bank account ID to check against
+            window_days (int): Number of days to look around the transaction date
+        
+        Returns:
+            bool: True if a matching transaction is found in the specified account
+        """
+        try:
+            # If we have a transaction_id, use it for more accurate matching
+            if trans.transaction_id:
+                cursor = self.db.execute("""
+                    SELECT COUNT(*) FROM transactions
+                    WHERE account = ? AND transaction_id = ?
+                """, (account_id, trans.transaction_id))
+                
+                if cursor.fetchone()[0] > 0:
+                    return True
+            
+            # Fall back to traditional duplicate detection
+            start_date = (trans.date - timedelta(days=window_days)).isoformat()
+            end_date = (trans.date + timedelta(days=window_days)).isoformat()
+            
+            withdrawal = float(abs(trans.amount)) if trans.amount < 0 else 0.0
+            deposit = float(trans.amount) if trans.amount > 0 else 0.0
+            
+            cursor = self.db.execute("""
+                SELECT COUNT(*) FROM transactions
+                WHERE date BETWEEN ? AND ?
+                AND account = ?
+                AND ABS(withdrawal - ?) < 0.01
+                AND ABS(deposit - ?) < 0.01
+                AND description = ?
+            """, (start_date, end_date, account_id, withdrawal, deposit, trans.payee))
+            
+            return cursor.fetchone()[0] > 0
+            
+        except Exception as e:
+            return False
+    
+    def _update_account_balance_from_csv(self, transactions: List[CSVTransaction], account_id: str):
+        """
+        Update the bank account balance using the latest balance from CSV transactions.
+        
+        Args:
+            transactions (List[CSVTransaction]): List of imported transactions
+            account_id (str): Bank account ID to update
+        """
+        try:
+            # Find the transaction with the latest date that has a balance
+            latest_transaction = None
+            latest_date = None
+            
+            for trans in transactions:
+                if trans.balance is not None:
+                    if latest_date is None or trans.date > latest_date:
+                        latest_date = trans.date
+                        latest_transaction = trans
+            
+            if latest_transaction and latest_transaction.balance is not None:
+                # Update the bank account balance
+                self.db.execute("""
+                    UPDATE bank_accounts 
+                    SET current_balance = ?, last_import_date = ?
+                    WHERE id = ?
+                """, (
+                    float(latest_transaction.balance),
+                    datetime.now().isoformat(),
+                    account_id
+                ))
+                
+                pass  # Balance updated successfully
+                
+        except Exception as e:
+            pass  # Balance update failed
 
     def create_auto_categorisation_rule(self, rule_data: dict) -> bool:
         """
@@ -307,7 +507,6 @@ class TransactionModel:
             
         except Exception as e:
             self.db.execute("ROLLBACK")
-            print(f"Error creating auto-categorisation rule: {e}")
             return False
 
     def get_auto_categorisation_rules(self) -> List[Dict]:
@@ -378,7 +577,6 @@ class TransactionModel:
             return rules
             
         except Exception as e:
-            print(f"Error getting auto-categorisation rules: {e}")
             return []
 
     def update_auto_categorisation_rule(self, rule_id: int, rule_data: Dict) -> bool:
@@ -449,7 +647,6 @@ class TransactionModel:
             return True
             
         except Exception as e:
-            print(f"Error updating auto-categorisation rule: {e}")
             self.db.rollback()
             return False
 
@@ -472,7 +669,6 @@ class TransactionModel:
             return True
             
         except Exception as e:
-            print(f"Error deleting auto-categorisation rule: {e}")
             self.db.rollback()
             return False
 
@@ -521,7 +717,6 @@ class TransactionModel:
             return True
 
         except Exception as e:
-            print(f"Error checking rule match: {e}")
             return False
 
     def _check_description_conditions(self, description: str, conditions: List[tuple]) -> bool:
@@ -678,7 +873,6 @@ class TransactionModel:
             self.db.commit()
 
         except Exception as e:
-            print(f"Error applying auto-categorisation rules: {e}")
             self.db.rollback()
     
     def update_transaction_category(self, transaction_id: int, category_id: str) -> bool:
@@ -692,7 +886,44 @@ class TransactionModel:
             self.db.commit()
             return True
         except Exception as e:
-            print(f"Error updating transaction category: {e}")
+            return False
+
+    def update_transaction_visibility(self, transaction_id: int, hidden: bool) -> bool:
+        """Update the visibility of a transaction"""
+        try:
+            self.db.execute("""
+                UPDATE transactions 
+                SET is_hidden = ?
+                WHERE id = ?
+            """, (hidden, transaction_id))
+            self.db.commit()
+            return True
+        except Exception as e:
+            return False
+
+    def update_transaction_internal_transfer(self, transaction_id: int, is_internal: bool) -> bool:
+        """Update the internal transfer status of a transaction"""
+        try:
+            self.db.execute("""
+                UPDATE transactions 
+                SET is_internal_transfer = ?
+                WHERE id = ?
+            """, (is_internal, transaction_id))
+            self.db.commit()
+            return True
+        except Exception as e:
+            return False
+
+    def delete_transaction(self, transaction_id: int) -> bool:
+        """Delete a transaction"""
+        try:
+            self.db.execute("""
+                DELETE FROM transactions 
+                WHERE id = ?
+            """, (transaction_id,))
+            self.db.commit()
+            return True
+        except Exception as e:
             return False
 
     def check_account_duplicates(self, transaction: QIFTransaction, account_id: str, window_days: int = 3) -> bool:
@@ -733,7 +964,6 @@ class TransactionModel:
             return count > 0
             
         except Exception as e:
-            print(f"Error checking account duplicates: {e}")
             return False
         
     def detect_internal_transfers(self) -> bool:
@@ -803,7 +1033,6 @@ class TransactionModel:
             
         except Exception as e:
             self.db.execute("ROLLBACK")
-            print(f"Error detecting internal transfers: {e}")
             return False
 
     def find_database_duplicates(self, transactions: List[QIFTransaction], window_days: int = 3) -> List[Dict]:
@@ -858,6 +1087,6 @@ class TransactionModel:
                     })
         
         except Exception as e:
-            print(f"Error checking for database duplicates: {e}")
+            pass  # Error checking duplicates
         
         return duplicates

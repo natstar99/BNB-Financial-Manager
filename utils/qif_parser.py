@@ -1,4 +1,9 @@
-# File: utils/qif_parser.py
+"""
+QIF Parser Module
+
+This module provides functionality to parse QIF (Quicken Interchange Format) files
+and convert them into transaction objects for import into the financial manager.
+"""
 
 from datetime import datetime
 from decimal import Decimal
@@ -105,8 +110,7 @@ class QIFParser:
                     continue
             
             raise ValueError(f"Unrecognised date format: {date_str}")
-        except ValueError as e:
-            print(f"Error parsing date {date_str}: {e}")
+        except ValueError:
             return datetime.now()  # Fallback to current date
     
     def _parse_amount(self, amount_str: str) -> Decimal:
@@ -115,6 +119,5 @@ class QIFParser:
             # Remove any currency symbols and handle thousands separators
             clean_amount = amount_str.replace('$', '').replace(',', '')
             return Decimal(clean_amount)
-        except Exception as e:
-            print(f"Error parsing amount {amount_str}: {e}")
+        except Exception:
             return Decimal('0')

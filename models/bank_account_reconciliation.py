@@ -1,8 +1,13 @@
-# File: models/bank_account_reconciliation.py
+"""
+Bank Account Reconciliation Module
+
+This module provides bank account reconciliation functionality to compare
+calculated balances against bank statement balances and identify discrepancies.
+"""
 
 from decimal import Decimal
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 from models.bank_account_model import BankAccountModel
 from models.transaction_model import TransactionModel
 
@@ -67,7 +72,7 @@ class BankAccountReconciliation:
             
         except Exception as e:
             print(f"Error starting reconciliation: {e}")
-            return None
+            return {}
     
     def find_potential_matches(self, target_amount: Decimal, 
                              transactions: List[Dict], window_days: int = 5) -> List[Dict]:
