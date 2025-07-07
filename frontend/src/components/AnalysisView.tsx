@@ -984,7 +984,10 @@ const AnalysisView: React.FC = () => {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     dataKey="period" 
-                    tickFormatter={(value, index) => formatPeriodLabel(value, monthlyData[index]?.date)}
+                    tickFormatter={(value) => {
+                      const dataItem = monthlyData.find(item => item.period === value);
+                      return formatPeriodLabel(value, dataItem?.date);
+                    }}
                   />
                   <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`} />
                   <Tooltip 
@@ -1030,7 +1033,10 @@ const AnalysisView: React.FC = () => {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     dataKey="period" 
-                    tickFormatter={(value, index) => formatPeriodLabel(value, monthlyData[index]?.date)}
+                    tickFormatter={(value) => {
+                      const dataItem = monthlyData.find(item => item.period === value);
+                      return formatPeriodLabel(value, dataItem?.date);
+                    }}
                   />
                   <YAxis tickFormatter={(value) => `$${(value / 1000).toFixed(1)}k`} />
                   <Tooltip 
