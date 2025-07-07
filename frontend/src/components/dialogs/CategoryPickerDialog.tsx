@@ -17,6 +17,8 @@ interface CategoryPickerDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onCategorySelect: (categoryId: string) => void;
+  onMarkAsInternalTransfer?: () => void;
+  onMarkAsHidden?: () => void;
   currentCategoryId?: string;
 }
 
@@ -24,6 +26,8 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
   isOpen, 
   onClose, 
   onCategorySelect, 
+  onMarkAsInternalTransfer,
+  onMarkAsHidden,
   currentCategoryId 
 }) => {
   const [categories, setCategories] = useState<Category[]>([]);
@@ -395,6 +399,36 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
           </button>
         </div>
 
+        {/* Quick Action Buttons - moved to top */}
+        {(onMarkAsInternalTransfer || onMarkAsHidden) && (
+          <div className="p-3 border-b bg-gray-50">
+            <div className="flex space-x-2">
+              {onMarkAsInternalTransfer && (
+                <button
+                  className="bg-purple-100 hover:bg-purple-200 text-purple-800 px-3 py-1.5 rounded text-sm font-medium flex-1 transition-colors"
+                  onClick={() => {
+                    onMarkAsInternalTransfer();
+                    onClose();
+                  }}
+                >
+                  Mark as Internal Transfer
+                </button>
+              )}
+              {onMarkAsHidden && (
+                <button
+                  className="bg-orange-100 hover:bg-orange-200 text-orange-800 px-3 py-1.5 rounded text-sm font-medium flex-1 transition-colors"
+                  onClick={() => {
+                    onMarkAsHidden();
+                    onClose();
+                  }}
+                >
+                  Mark as Hidden
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Search */}
         <div className="p-4 border-b">
           <div className="relative">
@@ -433,6 +467,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
             <div className="font-medium text-gray-900">{getSelectedCategoryName()}</div>
           </div>
         )}
+
 
         {/* Action Buttons */}
         <div className="flex justify-between items-center p-4 border-t">

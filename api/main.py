@@ -117,7 +117,14 @@ async def root():
     return {"message": "BNB Financial Manager API"}
 
 # Transaction endpoints
-@app.get("/api/transactions", response_model=List[TransactionResponse])
+class PaginatedTransactionResponse(BaseModel):
+    transactions: List[TransactionResponse]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+
+@app.get("/api/transactions", response_model=PaginatedTransactionResponse)
 async def get_transactions(
     filter: Optional[str] = "all",
     search: Optional[str] = None,
@@ -125,11 +132,14 @@ async def get_transactions(
     category_filter: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
-    limit: Optional[int] = None,
-    offset: Optional[int] = 0
+    page: int = 1,
+    page_size: int = 250
 ):
     """Get transactions with filtering, pagination and search - OPTIMIZED for 10x performance"""
     try:
+        # Calculate offset from page number
+        offset = (page - 1) * page_size
+        
         # Single optimized database query with all filters applied at SQL level
         query = """
             SELECT t.id, t.date, t.account, ba.name as account_name, t.description, 
@@ -186,17 +196,16 @@ async def get_transactions(
         # Order at SQL level
         query += " ORDER BY t.date DESC"
         
-        # Only add pagination if limit is specified
-        if limit is not None:
-            query += " LIMIT ? OFFSET ?"
-            params.extend([limit, offset])
+        # Add pagination
+        query += " LIMIT ? OFFSET ?"
+        params.extend([page_size, offset])
         
         # Execute optimized query
         cursor = db_manager.execute(query, params)
         rows = cursor.fetchall()
         
         # Convert to response format with minimal processing
-        result = []
+        transactions = []
         total_count = 0
         for row in rows:
             if not total_count:
@@ -207,7 +216,7 @@ async def get_transactions(
             if 'T' in date_str:
                 date_str = date_str.split('T')[0]  # Remove time component if present
             
-            result.append({
+            transactions.append({
                 "id": row[0],
                 "date": date_str,
                 "account": row[2],
@@ -224,7 +233,16 @@ async def get_transactions(
                 "is_internal_transfer": bool(row[13])
             })
         
-        return result
+        # Calculate total pages
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        
+        return {
+            "transactions": transactions,
+            "total_count": total_count,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

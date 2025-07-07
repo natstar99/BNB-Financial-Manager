@@ -21,6 +21,14 @@ interface Transaction {
   is_internal_transfer: boolean;
 }
 
+interface PaginatedTransactionResponse {
+  transactions: Transaction[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 interface TransactionViewStandaloneProps {
   initialAccountFilter?: string;
   initialCategoryFilter?: string;
@@ -30,6 +38,12 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(250);
+  const [totalCount, setTotalCount] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
   // Filter states - matching existing Qt application exactly
   const [activeFilter, setActiveFilter] = useState('all');
@@ -53,20 +67,29 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
   // Request management and optimized caching
   const [abortController, setAbortController] = useState<AbortController | null>(null);
   
-  // Simple cache for filter results
-  const [cache, setCache] = useState<Map<string, Transaction[]>>(new Map());
+  // Simple cache for filter results (now includes page)
+  const [cache, setCache] = useState<Map<string, PaginatedTransactionResponse>>(new Map());
   const [categoryName, setCategoryName] = useState<string>('');
 
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       // Only debounce search terms, fetch immediately for filter changes
       if (searchTerm.length === 0 || searchTerm.length >= 2) {
-        fetchTransactions();
+        // Reset to page 1 when filters change
+        setCurrentPage(1);
+        fetchTransactions(1);
       }
     }, searchTerm ? 800 : 0); // No delay for initial load or filter changes
 
     return () => clearTimeout(timeoutId);
   }, [activeFilter, searchTerm, accountFilter, categoryFilter]);
+
+  // Effect for page changes (no debounce needed)
+  useEffect(() => {
+    if (currentPage > 1) { // Don't double-fetch on initial load
+      fetchTransactions(currentPage);
+    }
+  }, [currentPage]);
 
   // Update account filter when initialAccountFilter prop changes
   useEffect(() => {
@@ -101,7 +124,7 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
     fetchCategoryName();
   }, [categoryFilter]);
 
-  const fetchTransactions = async () => {
+  const fetchTransactions = async (page: number = currentPage) => {
     try {
       // Cancel previous request if still pending
       if (abortController) {
@@ -112,7 +135,10 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
       setAbortController(newAbortController);
       
       setLoading(true);
-      const params: any = {};
+      const params: any = {
+        page,
+        page_size: pageSize
+      };
       
       // Map filter names to match API expectations
       if (activeFilter === 'uncategorised') {
@@ -140,24 +166,31 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
         params.category_filter = categoryFilter;
       }
       
-      // Create cache key
-      const cacheKey = `${params.filter || 'all'}_${params.search || ''}_${params.account_filter || ''}_${params.category_filter || ''}`;
+      // Create cache key including page
+      const cacheKey = `${params.filter || 'all'}_${params.search || ''}_${params.account_filter || ''}_${params.category_filter || ''}_${page}`;
       
       // Check cache first
       if (cache.has(cacheKey) && !searchTerm) {
-        setTransactions(cache.get(cacheKey)!);
+        const cachedResponse = cache.get(cacheKey)!;
+        setTransactions(cachedResponse.transactions);
+        setTotalCount(cachedResponse.total_count);
+        setTotalPages(cachedResponse.total_pages);
+        setCurrentPage(cachedResponse.page);
         setLoading(false);
         setError(null);
         return;
       }
 
-      const response = await axios.get<Transaction[]>('http://localhost:8000/api/transactions', { 
+      const response = await axios.get<PaginatedTransactionResponse>('http://localhost:8000/api/transactions', { 
         params,
         timeout: 10000,
         signal: newAbortController.signal
       });
       
-      setTransactions(response.data);
+      setTransactions(response.data.transactions);
+      setTotalCount(response.data.total_count);
+      setTotalPages(response.data.total_pages);
+      setCurrentPage(response.data.page);
       setError(null);
       
       // Cache the results (only for non-search queries)
@@ -185,16 +218,22 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
 
   const handleCategoryUpdate = async (transactionId: number, categoryId: string) => {
     try {
+      // Get category name for optimistic update
+      const categoryResponse = await axios.get('http://localhost:8000/api/categories');
+      const category = categoryResponse.data.find((c: any) => c.id === categoryId);
+      const categoryName = category?.name || categoryId;
+
+      // Optimistic update - update the transaction in current state immediately
+      setTransactions(prev => prev.map(t => 
+        t.id === transactionId 
+          ? { ...t, category_id: categoryId, category_name: categoryName }
+          : t
+      ));
+
+      // Then make the API call
       await axios.put(`http://localhost:8000/api/transactions/${transactionId}/category`, null, {
         params: { category_id: categoryId }
       });
-      
-      // Optimistic update - update the transaction in current state
-      setTransactions(prev => prev.map(t => 
-        t.id === transactionId 
-          ? { ...t, category_id: categoryId }
-          : t
-      ));
       
       // Invalidate cache for fresh data on next request
       invalidateCache();
@@ -442,10 +481,6 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
                   <Upload size={18} />
                   <span>Import</span>
                 </button>
-                <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center space-x-1">
-                  <Plus size={18} />
-                  <span>Add New</span>
-                </button>
               </div>
             </div>
 
@@ -503,13 +538,35 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
               >
                 Hidden
               </button>
-              <button 
-                className="ml-auto px-4 py-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium flex items-center space-x-1"
-                onClick={handleAutoCategorise}
-              >
-                <Tag size={16} />
-                <span>Auto-Categorise</span>
-              </button>
+              
+              {/* Selection and Action Buttons */}
+              <div className="ml-auto flex items-center space-x-2">
+                <button 
+                  className="px-3 py-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium text-sm"
+                  onClick={handleSelectAll}
+                >
+                  {selectedTransactionIds.size > 0 ? 'Unselect All' : 'Select All'}
+                </button>
+                <button 
+                  className={`px-3 py-2 font-medium text-sm flex items-center space-x-1 rounded ${
+                    selectedTransactionIds.size > 0 
+                      ? 'bg-indigo-600 hover:bg-indigo-700 text-white' 
+                      : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+                  }`}
+                  onClick={() => selectedTransactionIds.size > 0 && setShowBulkCategoryPicker(true)}
+                  disabled={selectedTransactionIds.size === 0}
+                >
+                  <Tag size={14} />
+                  <span>Categorise Selected {selectedTransactionIds.size > 0 ? `(${selectedTransactionIds.size})` : ''}</span>
+                </button>
+                <button 
+                  className="px-3 py-2 text-gray-600 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 font-medium text-sm flex items-center space-x-1"
+                  onClick={handleAutoCategorise}
+                >
+                  <Tag size={14} />
+                  <span>Auto-Categorise</span>
+                </button>
+              </div>
             </div>
             
             {/* Account Filter Indicator */}
@@ -544,31 +601,6 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
               </div>
             )}
 
-            {/* Bulk Actions Toolbar */}
-            {selectedTransactionIds.size > 0 && (
-              <div className="mt-2 flex items-center justify-between bg-indigo-50 rounded-md p-3 border border-indigo-200">
-                <div className="flex items-center space-x-3">
-                  <span className="text-sm font-medium text-indigo-900">
-                    {selectedTransactionIds.size} transaction{selectedTransactionIds.size !== 1 ? 's' : ''} selected
-                  </span>
-                  <button
-                    onClick={() => setSelectedTransactionIds(new Set())}
-                    className="text-sm text-indigo-600 hover:text-indigo-800 underline"
-                  >
-                    Clear selection
-                  </button>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => setShowBulkCategoryPicker(true)}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded text-sm flex items-center space-x-1"
-                  >
-                    <Tag size={14} />
-                    <span>Assign Category</span>
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
           
           {/* Transaction Table */}
@@ -657,7 +689,6 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
                     </div>
                   </th>
                   <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tax Type</th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -711,52 +742,59 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
                       </span>
                     </td>
                     <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">{transaction.tax_type}</td>
-                    <td className="px-6 py-3 whitespace-nowrap text-sm text-gray-500 text-right space-x-2">
-                      <button 
-                        className="text-indigo-600 hover:text-indigo-900"
-                        onClick={() => {
-                          setSelectedTransactionId(transaction.id);
-                          setShowCategoryPicker(true);
-                        }}
-                        title="Assign category"
-                      >
-                        <Tag size={16} />
-                      </button>
-                      <button 
-                        className={`${transaction.is_internal_transfer ? 'text-purple-600 hover:text-purple-900' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
-                        onClick={() => handleToggleInternalTransfer(transaction.id)}
-                        title={transaction.is_internal_transfer ? "Unmark as internal transfer" : "Mark as internal transfer"}
-                      >
-                        <ArrowLeftRight size={16} />
-                      </button>
-                      <button 
-                        className="text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100"
-                        onClick={() => handleToggleHidden(transaction.id)}
-                        title={transaction.is_hidden ? "Show transaction" : "Hide transaction"}
-                      >
-                        {transaction.is_hidden ? <Eye size={16} /> : <EyeOff size={16} />}
-                      </button>
-                      <button 
-                        className="text-red-600 hover:text-red-900"
-                        onClick={() => handleDeleteTransaction(transaction.id)}
-                        title="Delete transaction"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {/* Status bar */}
-          <div className="border-t border-gray-200 dark:border-gray-700 p-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
-            <div>
-              Showing {displayTransactions.length} transactions • Last import: 04 May 2025
-            </div>
-            <div>
-              Total withdrawals: {formatCurrency(totalWithdrawals)} • Total deposits: {formatCurrency(totalDeposits)}
+          {/* Pagination and Status bar */}
+          <div className="border-t border-gray-200 dark:border-gray-700 p-3 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900">
+            {/* Pagination Controls */}
+            <div className="flex justify-between items-center mb-2">
+              <div className="flex items-center space-x-4">
+                <span>
+                  Showing {((currentPage - 1) * pageSize) + 1} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} transactions
+                </span>
+                {totalCount > pageSize && (
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => setCurrentPage(1)}
+                      disabled={currentPage === 1}
+                      className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      First
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      disabled={currentPage === 1}
+                      className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Previous
+                    </button>
+                    <span className="text-xs">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                      className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Next
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={currentPage === totalPages}
+                      className="px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-100 dark:hover:bg-gray-700"
+                    >
+                      Last
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div>
+                Total withdrawals: {formatCurrency(totalWithdrawals)} • Total deposits: {formatCurrency(totalDeposits)}
+              </div>
             </div>
           </div>
       </div>
@@ -783,6 +821,18 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
             handleCategoryUpdate(selectedTransactionId, categoryId);
           }
           setShowCategoryPicker(false);
+          setSelectedTransactionId(null);
+        }}
+        onMarkAsInternalTransfer={() => {
+          if (selectedTransactionId) {
+            handleToggleInternalTransfer(selectedTransactionId);
+          }
+          setSelectedTransactionId(null);
+        }}
+        onMarkAsHidden={() => {
+          if (selectedTransactionId) {
+            handleToggleHidden(selectedTransactionId);
+          }
           setSelectedTransactionId(null);
         }}
         currentCategoryId={selectedTransactionId ? 
