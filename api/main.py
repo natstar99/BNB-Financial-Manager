@@ -246,6 +246,55 @@ async def get_transactions(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/transactions/all", response_model=List[TransactionResponse])
+async def get_all_transactions():
+    """Get all transactions without pagination - optimized for analysis and reporting"""
+    try:
+        # Single optimized database query to get all transactions
+        query = """
+            SELECT t.id, t.date, t.account, ba.name as account_name, t.description, 
+                   t.withdrawal, t.deposit, t.category_id, c.name as category_name, 
+                   t.tax_type, t.is_tax_deductible, t.is_hidden, t.is_matched, 
+                   t.is_internal_transfer
+            FROM transactions t
+            LEFT JOIN categories c ON t.category_id = c.id
+            LEFT JOIN bank_accounts ba ON t.account = ba.id
+            ORDER BY t.date DESC
+        """
+        
+        # Execute optimized query
+        cursor = db_manager.execute(query)
+        rows = cursor.fetchall()
+        
+        # Convert to response format
+        transactions = []
+        for row in rows:
+            # Format date properly - convert from ISO format to YYYY-MM-DD
+            date_str = row[1]
+            if 'T' in date_str:
+                date_str = date_str.split('T')[0]  # Remove time component if present
+            
+            transactions.append({
+                "id": row[0],
+                "date": date_str,
+                "account": row[2],
+                "account_name": row[3],
+                "description": row[4],
+                "withdrawal": float(row[5]) if row[5] else 0.0,
+                "deposit": float(row[6]) if row[6] else 0.0,
+                "category_id": row[7],
+                "category_name": row[8],
+                "tax_type": row[9] if row[9] else "NONE",
+                "is_tax_deductible": bool(row[10]),
+                "is_hidden": bool(row[11]),
+                "is_matched": bool(row[12]),
+                "is_internal_transfer": bool(row[13])
+            })
+        
+        return transactions
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/transactions/{transaction_id}", response_model=TransactionResponse)
 async def get_transaction(transaction_id: int):
     """Get a specific transaction"""

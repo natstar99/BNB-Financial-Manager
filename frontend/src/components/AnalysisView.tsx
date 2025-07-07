@@ -97,8 +97,9 @@ const AnalysisView: React.FC = () => {
       setLoading(true);
       
       // Fetch transactions, accounts, and categories data
+      // Use /all endpoint to get complete transaction data for analysis
       const [transactionsRes, accountsRes] = await Promise.all([
-        axios.get('http://localhost:8000/api/transactions'),
+        axios.get('http://localhost:8000/api/transactions/all'),
         axios.get('http://localhost:8000/api/accounts')
       ]);
 
