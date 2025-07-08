@@ -34,9 +34,9 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
     {
       id: "1",
       name: "Income",
-      parent_id: null,
+      parent_id: undefined,
       category_type: "group",
-      tax_type: null,
+      tax_type: undefined,
       is_bank_account: false,
       expanded: true,
       children: [
@@ -61,7 +61,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
           name: "Government",
           parent_id: "1",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: false,
           children: [
@@ -80,9 +80,9 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
     {
       id: "2",
       name: "Expenses",
-      parent_id: null,
+      parent_id: undefined,
       category_type: "group",
-      tax_type: null,
+      tax_type: undefined,
       is_bank_account: false,
       expanded: true,
       children: [
@@ -91,7 +91,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
           name: "Food",
           parent_id: "2",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: true,
           children: [
@@ -118,7 +118,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
           name: "Utilities",
           parent_id: "2",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: false,
           children: [
@@ -145,7 +145,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
           name: "Business",
           parent_id: "2",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: false,
           children: [
@@ -164,9 +164,9 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
     {
       id: "3",
       name: "Bank Accounts",
-      parent_id: null,
+      parent_id: undefined,
       category_type: "group",
-      tax_type: null,
+      tax_type: undefined,
       is_bank_account: false,
       expanded: true,
       children: [
@@ -175,7 +175,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
           name: "Westpac Savings",
           parent_id: "3",
           category_type: "transaction",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: true
         },
         {
@@ -183,7 +183,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
           name: "NAB Business",
           parent_id: "3",
           category_type: "transaction",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: true
         }
       ]

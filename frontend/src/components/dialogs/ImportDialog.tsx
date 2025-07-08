@@ -457,13 +457,13 @@ const ImportDialog: React.FC<ImportDialogProps> = ({ isOpen, onClose, onImportCo
                         <td className="px-3 py-2 text-right">
                           {transaction.deposit > 0 ? `$${transaction.deposit.toFixed(2)}` : ''}
                         </td>
-                        {fileMappings[previewingFile].preview.format === 'CSV' && (
+                        {fileMappings[previewingFile]?.preview?.format === 'CSV' && (
                           <td className="px-3 py-2 text-right">
                             {transaction.balance !== null && transaction.balance !== undefined 
                               ? `$${transaction.balance.toFixed(2)}` : ''}
                           </td>
                         )}
-                        {fileMappings[previewingFile].preview.transactions.some(t => t.category) && (
+                        {fileMappings[previewingFile]?.preview?.transactions?.some(t => t.category) && (
                           <td className="px-3 py-2">{transaction.category || ''}</td>
                         )}
                       </tr>

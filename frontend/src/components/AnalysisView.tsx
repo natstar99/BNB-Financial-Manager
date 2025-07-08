@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, Brush, ReferenceLine } from 'recharts';
-import { DollarSign, TrendingUp, TrendingDown, Filter, BarChart3, LineChart as LineChartIcon, Target, ChevronDown, ChevronRight, Eye, EyeOff, Save, Trash2, Plus } from 'lucide-react';
+import { DollarSign, TrendingUp, TrendingDown, Filter, BarChart3, LineChart as LineChartIcon, Target, ChevronDown, ChevronRight, Eye, EyeOff, Save, Trash2 } from 'lucide-react';
 import axios from 'axios';
 
 /**
@@ -118,7 +118,6 @@ const AnalysisView: React.FC = () => {
   const [incomeCategoryData, setIncomeCategoryData] = useState<any[]>([]);
   const [expenseCategoriesData, setExpenseCategoriesData] = useState<any[]>([]);
   const [monthlyData, setMonthlyData] = useState<ChartDataPoint[]>([]);
-  const [accountBalances, setAccountBalances] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryTree, setCategoryTree] = useState<Category[]>([]);
@@ -165,21 +164,16 @@ const AnalysisView: React.FC = () => {
     try {
       setLoading(true);
       
-      // Fetch transactions, accounts, and categories data
+      // Fetch transactions data
       // Use /all endpoint to get complete transaction data for analysis
-      const [transactionsRes, accountsRes] = await Promise.all([
-        axios.get('http://localhost:8000/api/transactions/all'),
-        axios.get('http://localhost:8000/api/accounts')
-      ]);
+      const transactionsRes = await axios.get('http://localhost:8000/api/transactions/all');
 
       const transactionsData = transactionsRes.data;
-      const accountsData = accountsRes.data;
       
       setTransactions(transactionsData);
       
       // Process data for charts
       processTransactionData(transactionsData);
-      processAccountData(accountsData);
       
       setError(null);
     } catch (err) {
@@ -257,11 +251,6 @@ const AnalysisView: React.FC = () => {
       { period: 'May', income: 5100, expenses: 3200, net: 1900, date: new Date(now.getFullYear(), 4, 15) }
     ]);
 
-    setAccountBalances([
-      { account: 'Westpac Savings', balance: 5234.67, change: 234.56 },
-      { account: 'NAB Business', balance: 12450.33, change: -156.78 },
-      { account: 'NAB Savings', balance: 1875.20, change: 89.45 }
-    ]);
   };
 
   const getDateRange = () => {
@@ -403,7 +392,7 @@ const AnalysisView: React.FC = () => {
     
     // Convert to chart data with category breakdown
     const sortedPeriods = Array.from(periodData.entries())
-      .sort(([a, dataA], [b, dataB]) => dataA.date.getTime() - dataB.date.getTime())
+      .sort(([, dataA], [, dataB]) => dataA.date.getTime() - dataB.date.getTime())
       .map(([period, data]) => {
         const result: any = {
           period,
@@ -491,15 +480,6 @@ const AnalysisView: React.FC = () => {
     setExpenseCategoriesData(expenseCategories);
   };
 
-  const processAccountData = (accounts: any[]) => {
-    const accountData = accounts.map(account => ({
-      account: account.name,
-      balance: account.current_balance,
-      change: Math.random() * 200 - 100 // Mock change data - would need historical data for real changes
-    }));
-    
-    setAccountBalances(accountData);
-  };
 
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D', '#8DD1E1', '#D084D0'];
   
@@ -514,9 +494,6 @@ const AnalysisView: React.FC = () => {
     }).format(value);
   };
 
-  const getTotalBalance = () => {
-    return accountBalances.reduce((sum, account) => sum + account.balance, 0);
-  };
 
   const getTotalIncome = () => {
     return monthlyData.reduce((sum, item) => sum + item.income, 0);

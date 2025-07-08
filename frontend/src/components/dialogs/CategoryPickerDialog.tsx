@@ -41,9 +41,9 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
     {
       id: "1",
       name: "Income",
-      parent_id: null,
+      parent_id: undefined,
       category_type: "group",
-      tax_type: null,
+      tax_type: undefined,
       is_bank_account: false,
       expanded: true,
       children: [
@@ -68,7 +68,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
           name: "Government",
           parent_id: "1",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: false,
           children: [
@@ -87,9 +87,9 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
     {
       id: "2",
       name: "Expenses",
-      parent_id: null,
+      parent_id: undefined,
       category_type: "group",
-      tax_type: null,
+      tax_type: undefined,
       is_bank_account: false,
       expanded: true,
       children: [
@@ -98,7 +98,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
           name: "Food",
           parent_id: "2",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: true,
           children: [
@@ -125,7 +125,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
           name: "Utilities",
           parent_id: "2",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: false,
           children: [
@@ -152,7 +152,7 @@ const CategoryPickerDialog: React.FC<CategoryPickerDialogProps> = ({
           name: "Business",
           parent_id: "2",
           category_type: "group",
-          tax_type: null,
+          tax_type: undefined,
           is_bank_account: false,
           expanded: false,
           children: [

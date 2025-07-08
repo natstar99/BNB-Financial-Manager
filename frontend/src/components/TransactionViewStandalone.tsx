@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Search, Filter, Plus, Upload, Download, Tag, ArrowDownUp, Settings, Trash2, Eye, EyeOff, RefreshCw, ArrowLeftRight, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Upload, Tag, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
 import axios from 'axios';
 import ImportDialog from './dialogs/ImportDialog';
 import CategoryPickerDialog from './dialogs/CategoryPickerDialog';
@@ -283,24 +283,6 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
     }
   };
 
-  const handleDeleteTransaction = async (transactionId: number) => {
-    if (!confirm('Are you sure you want to delete this transaction?')) {
-      return;
-    }
-    
-    try {
-      await axios.delete(`http://localhost:8000/api/transactions/${transactionId}`);
-      
-      // Optimistic update - remove from current state
-      setTransactions(prev => prev.filter(t => t.id !== transactionId));
-      
-      invalidateCache();
-    } catch (err) {
-      console.error('Error deleting transaction:', err);
-      alert('Failed to delete transaction');
-      fetchTransactions();
-    }
-  };
 
   const handleAutoCategorise = async () => {
     try {
@@ -445,6 +427,10 @@ const TransactionViewStandalone: React.FC<TransactionViewStandaloneProps> = ({ i
   const displayTransactions = sortTransactions(transactions);
 
   const calculateTotals = () => {
+    // Ensure displayTransactions is defined to prevent undefined reduce errors
+    if (!displayTransactions || displayTransactions.length === 0) {
+      return { totalWithdrawals: 0, totalDeposits: 0 };
+    }
     const totalWithdrawals = displayTransactions.reduce((sum, t) => sum + (t.withdrawal || 0), 0);
     const totalDeposits = displayTransactions.reduce((sum, t) => sum + (t.deposit || 0), 0);
     return { totalWithdrawals, totalDeposits };

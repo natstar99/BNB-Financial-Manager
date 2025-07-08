@@ -4,7 +4,7 @@ FROM node:18-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci --only=production
+RUN npm ci
 
 COPY frontend/ ./
 RUN npm run build
@@ -32,15 +32,13 @@ COPY schema.sql ./
 # Copy built React frontend
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 
-# Create data directory for SQLite database
-RUN mkdir -p /app/data
 
 # Expose port
 EXPOSE 8000
 
 # Environment variables
 ENV PYTHONPATH=/app
-ENV DATABASE_PATH=/app/data/finance.db
+ENV DATABASE_PATH=/app/finance.db
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

@@ -35,15 +35,14 @@ Go to: http://localhost:8000
 
 ## What this does
 
-- Import bank statements (CSV files)
-- Categorize your transactions
+- Import bank statements (QIF/CSV files)
+- Categorise your transactions
 - See charts of your spending
 - Track expenses by category
 
 ## File formats supported
 
-- CSV files from most banks
-- QIF files from Quicken
+- QIF has been tested the most, CSV files still not the most reliable. But give it a go if you can' tuse QID
 
 ## Troubleshooting
 
@@ -56,7 +55,7 @@ Go to: http://localhost:8000
 
 **Can't import CSV**
 - Your CSV needs Date, Description, Amount columns
-- Try a different CSV format
+- Try using QIF
 
 ## Development
 

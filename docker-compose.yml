@@ -7,13 +7,13 @@ services:
       - "8000:8000"
     volumes:
       # Persist database between container restarts
-      - ./data:/app/data
+      - ./finance.db:/app/finance.db
       # Development: uncomment to enable hot reload
       # - ./api:/app/api
       # - ./models:/app/models
       # - ./utils:/app/utils
     environment:
-      - DATABASE_PATH=/app/data/finance.db
+      - DATABASE_PATH=/app/finance.db
       - PYTHONPATH=/app
     restart: unless-stopped
     

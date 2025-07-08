@@ -70,20 +70,6 @@ if os.path.exists(frontend_path):
         """Serve React frontend index.html"""
         return FileResponse(os.path.join(frontend_path, "index.html"))
     
-    @app.get("/{path:path}")
-    async def serve_frontend_routes(path: str):
-        """Serve React frontend for client-side routing"""
-        # Check if it's an API route
-        if path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="API endpoint not found")
-        
-        # Check if file exists in static directory
-        file_path = os.path.join(frontend_path, path)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path)
-        
-        # Default to index.html for client-side routing
-        return FileResponse(os.path.join(frontend_path, "index.html"))
 else:
     # Development mode - keep existing root endpoint
     @app.get("/")
@@ -1021,6 +1007,23 @@ async def get_statistics():
         return stats
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# Catch-all route for React frontend (must be last to avoid intercepting API routes)
+if os.path.exists(frontend_path):
+    @app.get("/{path:path}")
+    async def serve_frontend_routes(path: str):
+        """Serve React frontend for client-side routing"""
+        # Check if it's an API route
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        
+        # Check if file exists in static directory
+        file_path = os.path.join(frontend_path, path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # Default to index.html for client-side routing
+        return FileResponse(os.path.join(frontend_path, "index.html"))
 
 if __name__ == "__main__":
     import uvicorn
