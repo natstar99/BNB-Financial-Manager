@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist database between container restarts
+      - ./data:/app/data
+      # Development: uncomment to enable hot reload
+      # - ./api:/app/api
+      # - ./models:/app/models
+      # - ./utils:/app/utils
+    environment:
+      - DATABASE_PATH=/app/data/finance.db
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    
+    # Optional: Add resource limits for better performance
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # Optional: Add a reverse proxy for custom domain
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf
+  #   depends_on:
+  #     - app
+  #   restart: unless-stopped

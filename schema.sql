@@ -1,9 +1,5 @@
 -- 
 -- BNB Financial Manager Database Schema
--- 
--- This file defines the complete database schema for the financial management application.
--- Includes tables for categories, transactions, bank accounts, auto-categorisation rules,
--- and analysis views with performance-optimised indexes.
 --
 
 CREATE TABLE IF NOT EXISTS categories (
@@ -50,7 +46,7 @@ ON transactions(description, account);
 CREATE INDEX IF NOT EXISTS idx_transactions_uncategorised 
 ON transactions(category_id, is_internal_transfer, is_hidden, date DESC);
 
--- Critical performance indexes for 10x speed improvement
+-- Performance indexes for speed improvement
 CREATE INDEX IF NOT EXISTS idx_transactions_performance_main 
 ON transactions(date DESC, is_hidden, is_internal_transfer, category_id, account);
 

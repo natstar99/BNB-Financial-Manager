@@ -3,44 +3,111 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, 
 import { DollarSign, TrendingUp, TrendingDown, Filter, BarChart3, LineChart as LineChartIcon, Target, ChevronDown, ChevronRight, Eye, EyeOff, Save, Trash2, Plus } from 'lucide-react';
 import axios from 'axios';
 
+/**
+ * Represents a single data point in time-series financial charts.
+ * Contains aggregated financial data for a specific time period.
+ */
 interface ChartDataPoint {
+  /** Time period identifier (e.g., "2024-01", "2024-Q1", "2024-01-15") */
   period: string;
+  /** Total income for this period */
   income: number;
+  /** Total expenses for this period */
   expenses: number;
+  /** Net income (income - expenses) for this period */
   net: number;
+  /** Date object for period, used for chart sorting and labeling */
   date: Date;
+  /** Cumulative income from start of analysis period to this point */
   cumulativeIncome?: number;
+  /** Cumulative expenses from start of analysis period to this point */
   cumulativeExpenses?: number;
+  /** Cumulative net income from start of analysis period to this point */
   cumulativeNet?: number;
+  /** Average income across all periods (used for reference lines) */
   avgIncome?: number;
+  /** Average expenses across all periods (used for reference lines) */
   avgExpenses?: number;
+  /** Average net income across all periods (used for reference lines) */
   avgNet?: number;
-  [key: string]: any; // For dynamic category data
+  /** Dynamic category data for stacked charts - category names as keys, amounts as values */
+  [key: string]: any;
 }
 
+/**
+ * Represents a financial category in the hierarchical category system.
+ * Categories form a tree structure for organizing transactions.
+ */
 interface Category {
+  /** Unique category identifier */
   id: string;
+  /** Display name for the category (may include parent path like "Food/Groceries") */
   name: string;
+  /** ID of parent category, null for root categories */
   parent_id: string | null;
+  /** Type of category (ROOT, GROUP, TRANSACTION) */
   category_type: string;
+  /** Whether this category represents a bank account */
   is_bank_account: boolean;
+  /** Child categories (populated when building category tree) */
   children?: Category[];
 }
 
+/**
+ * Represents a saved analysis view configuration.
+ * Allows users to save and reload specific filter/display combinations.
+ */
 interface AnalysisView {
+  /** Unique identifier for the saved view */
   id: string;
+  /** User-provided name for the view */
   name: string;
+  /** Array of category IDs to filter analysis to */
   selectedCategories: string[];
+  /** Time period selection ('week', 'month', 'quarter', 'year', 'custom') */
   selectedPeriod: string;
+  /** Custom date range when selectedPeriod is 'custom' */
   customDateRange: { start: string; end: string };
+  /** Time aggregation level for charts */
   aggregation: 'day' | 'week' | 'month' | 'quarter';
+  /** Chart visualization type */
   chartType: 'grouped' | 'stacked' | 'line';
+  /** Whether to display income data in charts */
   showIncome: boolean;
+  /** Whether to display expense data in charts */
   showExpenses: boolean;
+  /** Whether to show cumulative totals instead of period totals */
   showCumulative: boolean;
+  /** Whether to show average reference lines on charts */
   showAverages: boolean;
 }
 
+/**
+ * AnalysisView Component
+ * 
+ * Main component for financial analysis and visualization. Provides comprehensive
+ * tools for analyzing transaction data through interactive charts, filters, and
+ * saved view configurations.
+ * 
+ * Key Features:
+ * - Time-series analysis with multiple aggregation levels (daily/weekly/monthly/quarterly)
+ * - Category filtering with hierarchical category support
+ * - Multiple chart types (grouped/stacked bars, line charts)
+ * - Cumulative and average trend analysis
+ * - Saved view configurations for recurring analysis
+ * - Comprehensive financial breakdowns and statistics
+ * 
+ * Architecture Decision:
+ * Uses React hooks for state management instead of Redux to keep component
+ * self-contained and reduce complexity. All chart processing is done client-side
+ * to enable responsive filtering without API calls.
+ * 
+ * Performance Considerations:
+ * - Fetches all transaction data once on mount for complete analysis capability
+ * - Client-side processing enables instant filter responses
+ * - Uses React.memo and useCallback for expensive operations (TODO: implement)
+ * - Chart data is recalculated on filter changes for real-time analysis
+ */
 const AnalysisView: React.FC = () => {
   const [selectedPeriod, setSelectedPeriod] = useState('month');
   const [loading, setLoading] = useState(true);
@@ -85,7 +152,9 @@ const AnalysisView: React.FC = () => {
     fetchSavedViews();
   }, []);
   
-  // Recalculate data when filters change
+  // ARCHITECTURE DECISION: Real-time client-side processing for responsive UX
+  // Recalculates chart data whenever filters change to provide instant feedback
+  // Trade-off: Higher client-side computation vs. better user experience
   useEffect(() => {
     if (transactions.length > 0) {
       processTransactionData(transactions);
@@ -227,10 +296,29 @@ const AnalysisView: React.FC = () => {
     return { startDate, endDate };
   };
   
+  /**
+   * Process raw transaction data for chart visualization and analysis.
+   * 
+   * This is the core data processing function that transforms transaction data into
+   * chart-ready format with aggregation, filtering, and statistical calculations.
+   * 
+   * Processing Pipeline:
+   * 1. Filter transactions by date range and exclude internal transfers/uncategorised
+   * 2. Apply category filters if any categories are selected
+   * 3. Group transactions by time period (day/week/month/quarter)
+   * 4. Aggregate income/expenses within each period
+   * 5. Calculate cumulative totals and averages for trend analysis
+   * 6. Prepare category breakdown data for pie charts and analysis tables
+   * 
+   * @param transactions - Raw transaction data from API
+   */
   const processTransactionData = (transactions: any[]) => {
     const { startDate, endDate } = getDateRange();
     
-    // Filter transactions by date range and exclude uncategorised transactions
+    // Phase 1: Apply basic filters to exclude irrelevant transactions
+    // Exclude internal transfers (money moving between own accounts)
+    // Exclude uncategorised transactions (no meaningful analysis possible)
+    // Apply date range filtering based on selected period
     const filteredTransactions = transactions.filter(transaction => {
       if (transaction.is_internal_transfer) return false;
       if (!transaction.category_id) return false; // Exclude uncategorised transactions
@@ -238,7 +326,9 @@ const AnalysisView: React.FC = () => {
       return transactionDate >= startDate && transactionDate <= endDate;
     });
     
-    // Filter by selected categories if any are selected
+    // Phase 2: Apply category filtering if user has selected specific categories
+    // This allows users to focus analysis on specific spending/income categories
+    // Uses hierarchical category matching (parent categories include children)
     const categoryFilteredTransactions = selectedCategories.length > 0 
       ? filteredTransactions.filter(t => {
           if (!t.category_id) return false;
@@ -247,28 +337,38 @@ const AnalysisView: React.FC = () => {
         })
       : filteredTransactions;
     
-    // Group transactions by time period
+    // Phase 3: Set up data structures for aggregation
+    // periodData: Groups transactions by time periods (day/week/month/quarter)
+    // categoryBreakdown: Tracks spending within each period for stacked charts
+    // expensesByCategory/incomeByCategory: Global category totals for pie charts
     const periodData = new Map<string, { income: number, expenses: number, date: Date, categoryBreakdown: Map<string, number> }>();
     const expensesByCategory = new Map<string, number>();
     const incomeByCategory = new Map<string, number>();
     
+    // Phase 4: Process each transaction and aggregate by time periods
     categoryFilteredTransactions.forEach(transaction => {
       const date = new Date(transaction.date);
       let periodKey: string;
       
+      // Generate period key based on selected aggregation level
+      // This determines how transactions are grouped in time-series charts
       switch (aggregation) {
         case 'day':
+          // Daily aggregation: Group by exact date (YYYY-MM-DD)
           periodKey = date.toISOString().split('T')[0];
           break;
         case 'week':
+          // Weekly aggregation: Group by week starting date (Sunday)
           const weekStart = new Date(date);
           weekStart.setDate(date.getDate() - date.getDay());
           periodKey = weekStart.toISOString().split('T')[0];
           break;
         case 'month':
+          // Monthly aggregation: Group by year-month (YYYY-MM)
           periodKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
           break;
         case 'quarter':
+          // Quarterly aggregation: Group by year-quarter (YYYY-Q1/Q2/Q3/Q4)
           const quarter = Math.floor(date.getMonth() / 3) + 1;
           periodKey = `${date.getFullYear()}-Q${quarter}`;
           break;

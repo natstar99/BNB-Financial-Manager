@@ -33,15 +33,32 @@ class DatabaseManager:
         """
         Initialise the database with schema if it doesn't exist.
         
-        Reads the schema.sql file and executes it to set up the database
-        structure if the schema file exists.
+        This method performs the following operations:
+        1. Establishes connection to SQLite database file (creates if doesn't exist)
+        2. Reads schema.sql file containing table definitions and indexes
+        3. Executes the schema to create all required tables and relationships
+        4. Commits the transaction to persist the schema
+        
+        The schema includes:
+        - transactions: Core financial transaction data
+        - categories: Hierarchical category structure for transaction classification
+        - bank_accounts: Bank account details and balances
+        - auto_categorisation_rules: Rules for automatic transaction categorisation
+        - analysis_views: Saved filter configurations for financial analysis
+        
+        Note: If schema.sql doesn't exist, database will still be created but empty.
+        This allows for dynamic schema setup in testing environments.
         """
         schema_path = Path("schema.sql")
+        # Always establish connection, even if schema file doesn't exist
+        self.conn = sqlite3.connect(self.db_path)
+        # Enable foreign key constraints for referential integrity
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        
         if schema_path.exists():
             with schema_path.open() as f:
                 schema_sql = f.read()
             
-            self.conn = sqlite3.connect(self.db_path)
             self.conn.executescript(schema_sql)
             self.conn.commit()
     
@@ -49,12 +66,22 @@ class DatabaseManager:
         """
         Execute a database query with optional parameters.
         
+        This method provides a safe interface for executing SQL queries with
+        parameterized inputs to prevent SQL injection attacks. All database
+        operations throughout the application should use this method.
+        
         Args:
-            query: SQL query string to execute
-            parameters: Optional list of parameters for the query
+            query: SQL query string to execute (use ? placeholders for parameters)
+            parameters: Optional list of parameters to substitute into query placeholders
             
         Returns:
-            Database cursor with query results
+            Database cursor with query results. Use cursor.fetchone(), cursor.fetchall(),
+            or cursor.fetchmany() to retrieve results.
+            
+        Example:
+            # Safe parameterized query
+            cursor = db.execute("SELECT * FROM transactions WHERE amount > ?", [100.0])
+            transactions = cursor.fetchall()
         """
         if parameters is None:
             parameters = []

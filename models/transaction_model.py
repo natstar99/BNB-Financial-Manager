@@ -830,19 +830,45 @@ class TransactionModel:
 
         return True
 
-    def apply_auto_categorisation_rules(self):
-        """Apply auto-categorisation rules to uncategorised transactions"""
+    def apply_auto_categorisation_rules(self) -> int:
+        """
+        Apply auto-categorisation rules to uncategorised transactions.
+        
+        This method processes all active auto-categorisation rules against
+        uncategorised transactions, applying the first matching rule to each
+        transaction. Rules are designed to automate the categorisation process
+        for recurring transactions.
+        
+        The process:
+        1. Retrieve all active rules (apply_future = 1)
+        2. Get all uncategorised transactions 
+        3. For each transaction, test against each rule in order
+        4. Apply the first matching rule and stop processing that transaction
+        5. Handle special cases like internal transfers (category_id = '0')
+        
+        Rule matching considers:
+        - Description patterns (contains/equals/starts with/ends with)
+        - Amount constraints (equals/greater than/less than/between)
+        - Account restrictions (specific account or all accounts)
+        - Date ranges (if specified)
+        
+        Returns:
+            int: Number of transactions that were successfully categorised
+        """
         try:
-            # Get all active rules
+            categorised_count = 0
+            
+            # Get all active rules ordered by creation (first created = higher priority)
             cursor = self.db.execute("""
                 SELECT id, category_id, account_id, amount_operator, 
                     amount_value, amount_value2, date_range
                 FROM auto_categorisation_rules
                 WHERE apply_future = 1
+                ORDER BY id ASC
             """)
             rules = cursor.fetchall()
 
-            # Get uncategorised transactions
+            # Get uncategorised transactions (transactions without category and not internal transfers)
             transactions = self.get_transactions("uncategorised")
 
             for trans in transactions:
@@ -851,7 +877,7 @@ class TransactionModel:
                         category_id = rule[1]  # rule[1] is category_id
                         
                         if category_id == '0':  # Special case for internal transfers
-                            # This is an internal transfer rule
+                            # Apply internal transfer classification
                             self.db.execute("""
                                 UPDATE transactions
                                 SET category_id = NULL,
@@ -860,7 +886,7 @@ class TransactionModel:
                                 WHERE id = ?
                             """, (trans.id,))
                         else:
-                            # Regular category rule
+                            # Apply regular category classification
                             self.db.execute("""
                                 UPDATE transactions
                                 SET category_id = ?,
@@ -868,12 +894,16 @@ class TransactionModel:
                                     is_matched = 0
                                 WHERE id = ?
                             """, (category_id, trans.id))
-                        break  # Stop after first matching rule
+                        
+                        categorised_count += 1
+                        break  # Stop after first matching rule (priority ordering)
 
             self.db.commit()
+            return categorised_count
 
         except Exception as e:
             self.db.rollback()
+            return 0
     
     def update_transaction_category(self, transaction_id: int, category_id: str) -> bool:
         """Update the category of a transaction"""

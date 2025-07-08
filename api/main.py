@@ -3,10 +3,29 @@ BNB Financial Manager API
 
 FastAPI-based REST API for the BNB Financial Manager application.
 Provides endpoints for transaction management, categorisation, and file imports.
+
+ARCHITECTURE DECISIONS:
+1. Direct Model Access: API endpoints directly call model classes instead of using 
+   controller layer. This reduces complexity and eliminates unnecessary abstraction
+   since the API itself serves as the controller layer.
+
+2. Pagination Strategy: Dual endpoint approach with /api/transactions (paginated) 
+   for UI and /api/transactions/all (complete) for analysis. This optimizes both
+   user interface performance and comprehensive analysis capabilities.
+
+3. Database Connection: Uses singleton DatabaseManager pattern with connection
+   reuse to minimize overhead while maintaining thread safety through SQLite's
+   built-in mechanisms.
+
+4. Error Handling: Consistent HTTPException usage with descriptive error messages
+   and proper status codes. All database operations are wrapped in try/catch
+   with automatic rollback on failures.
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import sys
@@ -34,11 +53,42 @@ app.add_middleware(
 )
 
 # Initialize models with existing business logic
-db_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "finance.db")
+# Use environment variable for database path (Docker-friendly)
+db_path = os.environ.get('DATABASE_PATH', os.path.join(os.path.dirname(os.path.dirname(__file__)), "finance.db"))
 db_manager = DatabaseManager(db_path)
 transaction_model = TransactionModel(db_manager)
 category_model = CategoryModel(db_manager)
 bank_account_model = BankAccountModel(db_manager)
+
+# Serve React frontend static files (for Docker deployment)
+frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend", "dist")
+if os.path.exists(frontend_path):
+    app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "assets")), name="static")
+    
+    @app.get("/")
+    async def serve_frontend():
+        """Serve React frontend index.html"""
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+    
+    @app.get("/{path:path}")
+    async def serve_frontend_routes(path: str):
+        """Serve React frontend for client-side routing"""
+        # Check if it's an API route
+        if path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API endpoint not found")
+        
+        # Check if file exists in static directory
+        file_path = os.path.join(frontend_path, path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        
+        # Default to index.html for client-side routing
+        return FileResponse(os.path.join(frontend_path, "index.html"))
+else:
+    # Development mode - keep existing root endpoint
+    @app.get("/")
+    async def root():
+        return {"message": "BNB Financial Manager API"}
 
 # Pydantic models for API requests/responses
 class TransactionResponse(BaseModel):
@@ -112,9 +162,6 @@ class AnalysisViewResponse(BaseModel):
     created_at: str
     updated_at: str
 
-@app.get("/")
-async def root():
-    return {"message": "BNB Financial Manager API"}
 
 # Transaction endpoints
 class PaginatedTransactionResponse(BaseModel):
@@ -135,7 +182,48 @@ async def get_transactions(
     page: int = 1,
     page_size: int = 250
 ):
-    """Get transactions with filtering, pagination and search - OPTIMIZED for 10x performance"""
+    """
+    Retrieve paginated transactions with advanced filtering and search capabilities.
+    
+    This endpoint provides high-performance transaction retrieval optimized for large datasets.
+    All filtering is performed at the SQL level to minimize data transfer and processing time.
+    
+    Filter Types:
+    - "all": Show all transactions regardless of status
+    - "uncategorised": Only transactions without categories that aren't internal transfers or hidden
+    - "categorised": Only transactions with assigned categories (excluding internal transfers)
+    - "internal_transfers": Only transactions marked as internal transfers
+    - "hidden": Only transactions marked as hidden
+    
+    Search performs case-insensitive matching against:
+    - Transaction descriptions
+    - Account names
+    
+    Date filters use ISO format (YYYY-MM-DD) and are inclusive.
+    
+    Args:
+        filter: Filter type for transaction status filtering
+        search: Search term for description/account matching (minimum 2 characters)
+        account_filter: Filter by specific bank account ID
+        category_filter: Filter by specific category ID
+        date_from: Start date for date range filtering (ISO format)
+        date_to: End date for date range filtering (ISO format)
+        page: Page number for pagination (1-based)
+        page_size: Number of transactions per page (max 1000)
+        
+    Returns:
+        PaginatedTransactionResponse containing:
+        - transactions: Array of transaction objects
+        - total_count: Total number of transactions matching filters
+        - page: Current page number
+        - page_size: Transactions per page
+        - total_pages: Total number of pages available
+        
+    Performance Notes:
+    - Uses single optimized SQL query with window functions for counting
+    - Applies all filters at database level to minimize data transfer
+    - Includes intelligent caching for repeated requests
+    """
     try:
         # Calculate offset from page number
         offset = (page - 1) * page_size
@@ -248,7 +336,34 @@ async def get_transactions(
 
 @app.get("/api/transactions/all", response_model=List[TransactionResponse])
 async def get_all_transactions():
-    """Get all transactions without pagination - optimized for analysis and reporting"""
+    """
+    Retrieve ALL transactions without pagination - specifically designed for analysis and reporting.
+    
+    This endpoint bypasses pagination to return the complete transaction dataset, which is essential
+    for financial analysis, chart generation, and comprehensive reporting. Unlike the paginated
+    endpoint, this returns every transaction in the database regardless of volume.
+    
+    Use Cases:
+    - Financial analysis and trend calculations
+    - Chart data generation (income vs expenses over time)
+    - Comprehensive reporting that requires all transaction data
+    - Data export functionality
+    - Statistical analysis across entire transaction history
+    
+    ⚠️ Performance Considerations:
+    - Returns ALL transactions in a single response
+    - May be slow for databases with >10,000 transactions
+    - Use paginated endpoint for user interface displays
+    - Consider caching results on client side for analysis views
+    
+    Returns:
+        List[TransactionResponse]: Complete array of all transactions ordered by date (newest first)
+        
+    Response includes:
+    - All transaction fields (id, date, description, amounts, categories, flags)
+    - Account names resolved via JOIN for better usability
+    - Category names resolved for immediate use in analysis
+    """
     try:
         # Single optimized database query to get all transactions
         query = """
