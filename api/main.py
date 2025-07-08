@@ -516,18 +516,21 @@ async def get_group_categories():
     """Get only group categories for parent selection"""
     try:
         all_categories = category_model.get_categories()
-        # Filter to only group categories and root categories
+        # Filter to exclude transaction categories that aren't bank accounts
         group_categories = []
         for c in all_categories:
             cat_type = c.category_type.value if hasattr(c.category_type, 'value') else str(c.category_type)
-            if cat_type in ['group', 'asset_class']:  # Include both groups and root categories
+            is_bank_account = getattr(c, 'is_bank_account', False)
+            
+            # Include: groups, asset_class, root categories, but exclude transaction categories unless they're bank accounts
+            if cat_type != 'transaction' or c.parent_id is None:  # Include non-transactions OR root categories
                 group_categories.append({
                     "id": c.id,
                     "name": c.name,
                     "parent_id": c.parent_id,
                     "category_type": cat_type,
                     "tax_type": c.tax_type,
-                    "is_bank_account": getattr(c, 'is_bank_account', False)
+                    "is_bank_account": is_bank_account
                 })
         return group_categories
     except Exception as e:
