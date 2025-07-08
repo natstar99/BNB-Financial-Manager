@@ -99,7 +99,7 @@ class CategoryModel:
         ]
 
     def add_category(self, name: str, parent_id: str, category_type: CategoryType, 
-                    tax_type: Optional[str] = None, is_bank_account: bool = False) -> bool:
+                    tax_type: Optional[str] = None, is_bank_account: bool = False) -> Optional[str]:
         """
         Add a new category under the specified parent
         
@@ -111,7 +111,7 @@ class CategoryModel:
             is_bank_account: Flag indicating if this is a bank account category
             
         Returns:
-            bool: True if successful, False otherwise
+            Optional[str]: The new category ID if successful, None otherwise
         """
         try:
             # Get all children of parent to determine next available ID
@@ -161,11 +161,11 @@ class CategoryModel:
             """, (new_id, name, parent_id, category_type.value, tax_type, is_bank_account))
             
             self.db.commit()
-            return True
+            return new_id
             
         except Exception as e:
             self.db.rollback()
-            return False
+            return None
 
     def move_category(self, category_id: str, new_parent_id: str) -> bool:
         """Move a category to a new parent, updating its ID and children's IDs"""

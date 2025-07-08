@@ -170,3 +170,55 @@ class BankAccountModel:
         except Exception as e:
             print(f"Error validating balance: {e}")
             return False, Decimal('0')
+    
+    def create_account(self, name: str, account_number: Optional[str] = None, 
+                      bsb: Optional[str] = None, bank_name: Optional[str] = None, 
+                      notes: Optional[str] = None) -> str:
+        """
+        Create a new bank account
+        
+        Args:
+            name: Account name/description
+            account_number: Bank account number
+            bsb: BSB code
+            bank_name: Name of the bank
+            notes: Optional notes
+            
+        Returns:
+            str: The account ID
+        """
+        try:
+            # Import here to avoid circular imports
+            from models.category_model import CategoryModel, CategoryType
+            
+            # Create category model instance
+            category_model = CategoryModel(self.db)
+            
+            # Start transaction
+            self.db.execute("BEGIN TRANSACTION")
+            
+            # First, create the category using the existing CategoryModel logic
+            account_id = category_model.add_category(
+                name=name,
+                parent_id="1",  # Assets category
+                category_type=CategoryType.TRANSACTION,
+                tax_type=None,
+                is_bank_account=True
+            )
+            
+            if not account_id:
+                self.db.execute("ROLLBACK")
+                raise Exception("Failed to create category for bank account")
+            
+            # Insert into bank_accounts table with the same ID
+            self.db.execute("""
+                INSERT INTO bank_accounts (id, name, account_number, bsb, bank_name, current_balance, notes)
+                VALUES (?, ?, ?, ?, ?, 0.00, ?)
+            """, (account_id, name, account_number or '', bsb or '', bank_name or '', notes or ''))
+            
+            self.db.execute("COMMIT")
+            return account_id
+            
+        except Exception as e:
+            self.db.execute("ROLLBACK")
+            raise Exception(f"Error creating bank account: {e}")

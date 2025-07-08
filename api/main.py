@@ -493,8 +493,43 @@ async def get_categories():
 async def create_category(name: str, parent_id: Optional[str] = None, category_type: str = "transaction", tax_type: Optional[str] = None):
     """Create new category - uses existing model logic"""
     try:
-        category_id = category_model.add_category(name, parent_id, category_type, tax_type, False)
-        return {"id": category_id, "message": "Category created successfully"}
+        from models.category_model import CategoryType
+        
+        # Convert string to CategoryType enum
+        if category_type.lower() == "group":
+            cat_type = CategoryType.GROUP
+        elif category_type.lower() == "transaction":
+            cat_type = CategoryType.TRANSACTION
+        else:
+            cat_type = CategoryType.TRANSACTION  # Default
+            
+        category_id = category_model.add_category(name, parent_id, cat_type, tax_type, False)
+        if category_id:
+            return {"id": category_id, "message": "Category created successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to create category")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/categories/groups", response_model=List[CategoryResponse])
+async def get_group_categories():
+    """Get only group categories for parent selection"""
+    try:
+        all_categories = category_model.get_categories()
+        # Filter to only group categories and root categories
+        group_categories = []
+        for c in all_categories:
+            cat_type = c.category_type.value if hasattr(c.category_type, 'value') else str(c.category_type)
+            if cat_type in ['group', 'asset_class']:  # Include both groups and root categories
+                group_categories.append({
+                    "id": c.id,
+                    "name": c.name,
+                    "parent_id": c.parent_id,
+                    "category_type": cat_type,
+                    "tax_type": c.tax_type,
+                    "is_bank_account": getattr(c, 'is_bank_account', False)
+                })
+        return group_categories
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

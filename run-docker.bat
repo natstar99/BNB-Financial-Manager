@@ -20,6 +20,16 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+:: Create database file with schema if it doesn't exist
+if not exist "finance.db" (
+    echo Creating database with schema...
+    python create_empty_db.py
+    if %errorlevel% neq 0 (
+        echo Warning: Python not found, creating empty file instead...
+        type nul > finance.db
+    )
+)
+
 echo Building and starting the application...
 docker-compose up --build
 

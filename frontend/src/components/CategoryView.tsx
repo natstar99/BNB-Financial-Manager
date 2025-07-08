@@ -20,6 +20,7 @@ interface CategoryViewProps {
 
 const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavigateToCategory }) => {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [groupCategories, setGroupCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -192,6 +193,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
 
   useEffect(() => {
     fetchCategories();
+    fetchGroupCategories();
   }, []);
 
   const fetchCategories = async () => {
@@ -232,6 +234,19 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
     }
   };
 
+  const fetchGroupCategories = async () => {
+    try {
+      const response = await axios.get<Category[]>('http://localhost:8000/api/categories/groups');
+      setGroupCategories(response.data);
+    } catch (err) {
+      console.error('Error fetching group categories:', err);
+      // Fallback: filter existing categories for groups
+      const allCats = getAllCategories(categories);
+      const groups = allCats.filter(cat => cat.category_type === 'group' || cat.category_type === 'asset_class');
+      setGroupCategories(groups);
+    }
+  };
+
   const toggleExpanded = (categoryId: string) => {
     const updateExpanded = (cats: Category[]): Category[] => {
       return cats.map(cat => {
@@ -262,6 +277,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
       
       // Refresh categories
       fetchCategories();
+      fetchGroupCategories();
       
       // Reset form
       setNewCategoryName('');
@@ -430,7 +446,7 @@ const CategoryView: React.FC<CategoryViewProps> = ({ onNavigateToAccount, onNavi
                   onChange={(e) => setNewCategoryParent(e.target.value)}
                 >
                   <option value="">No Parent (Root Category)</option>
-                  {getAllCategories(categories).map(cat => (
+                  {groupCategories.map(cat => (
                     <option key={cat.id} value={cat.id}>
                       {cat.name} ({cat.id})
                     </option>
